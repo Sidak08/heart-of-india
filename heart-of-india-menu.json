@@ -1,0 +1,748 @@
+{
+  "schemaVersion": 1,
+  "restaurant": {
+    "name": "Heart of India",
+    "tagline": "Authentic Indian Restaurant",
+    "phone": "+19055005382",
+    "address": {
+      "street": "89 Clarence St.",
+      "city": "Brampton",
+      "province": "ON",
+      "postalCode": "L6W 1S5",
+      "country": "CA"
+    },
+    "timezone": "America/Toronto",
+    "currency": "CAD",
+    "orderNotificationEmail": null,
+    "openingHours": null
+  },
+  "source": {
+    "menuImage": "2a1a4f44-ad2d-4b02-ba9d-79132220d58c.png",
+    "logoImage": "a86a54c3-32cf-4d92-b3fd-60ebfecb3018.png",
+    "status": "transcribed_from_supplied_menu_requires_owner_review",
+    "priceUnit": "cents",
+    "taxIncluded": null,
+    "notes": [
+      "Prices are transcribed from the supplied image, not verified as current.",
+      "White-obscured entries and pixelated promotional content are excluded.",
+      "Descriptions, allergens, dietary labels, portion sizes and unprinted customization options must not be inferred.",
+      "Category placement and menu spelling are retained where practical; thali and biriyani names include the category for clarity."
+    ]
+  },
+  "defaults": {
+    "image": null,
+    "description": null,
+    "allergens": null,
+    "dietaryTags": null,
+    "availability": "requires_owner_confirmation"
+  },
+  "categories": [
+    {
+      "id": "thali",
+      "name": "Thali",
+      "printedInclusions": "Served with Naan, Bread, Rice chef's Veggie and Raita",
+      "reviewNote": "Confirm whether 'Naan, Bread' means naan bread rather than two separate breads."
+    },
+    {
+      "id": "biriyani",
+      "name": "Biriyani",
+      "description": "Fragrant long-grain basmati rice cooked with aromatic spices, layered with marinated meat or vegetables, and slow-cooked to perfection."
+    },
+    {
+      "id": "appetizers",
+      "name": "Appetizers"
+    },
+    {
+      "id": "tandoori",
+      "name": "Tandoori"
+    },
+    {
+      "id": "curries",
+      "name": "Curries"
+    },
+    {
+      "id": "side-orders",
+      "name": "Side Orders"
+    },
+    {
+      "id": "drinks-desserts",
+      "name": "Drinks & Desserts"
+    },
+    {
+      "id": "special-combos",
+      "name": "Special Combos"
+    }
+  ],
+  "items": [
+    {
+      "id": "thali-veggie-curry-thali",
+      "categoryId": "thali",
+      "name": "Veggie Curry Thali",
+      "priceCents": 1299,
+      "optionGroups": []
+    },
+    {
+      "id": "thali-chicken-curry-thali",
+      "categoryId": "thali",
+      "name": "Chicken Curry Thali",
+      "priceCents": 1499,
+      "optionGroups": []
+    },
+    {
+      "id": "thali-butter-chicken-thali",
+      "categoryId": "thali",
+      "name": "Butter Chicken Thali",
+      "priceCents": 1599,
+      "optionGroups": []
+    },
+    {
+      "id": "thali-lamb-curry-thali",
+      "categoryId": "thali",
+      "name": "Lamb Curry Thali",
+      "priceCents": 1699,
+      "optionGroups": []
+    },
+    {
+      "id": "thali-shrimp-curry-thali",
+      "categoryId": "thali",
+      "name": "Shrimp Curry Thali",
+      "priceCents": 1799,
+      "optionGroups": []
+    },
+    {
+      "id": "biriyani-chicken-biriyani",
+      "categoryId": "biriyani",
+      "name": "Chicken Biriyani",
+      "priceCents": 1299,
+      "optionGroups": []
+    },
+    {
+      "id": "biriyani-lamb-biriyani",
+      "categoryId": "biriyani",
+      "name": "Lamb Biriyani",
+      "priceCents": 1499,
+      "optionGroups": []
+    },
+    {
+      "id": "biriyani-shrimp-biriyani",
+      "categoryId": "biriyani",
+      "name": "Shrimp Biriyani",
+      "priceCents": 1499,
+      "optionGroups": []
+    },
+    {
+      "id": "biriyani-vegetable-biriyani",
+      "categoryId": "biriyani",
+      "name": "Vegetable Biriyani",
+      "priceCents": 1199,
+      "optionGroups": []
+    },
+    {
+      "id": "appetizers-veggie-samosa-2-pcs",
+      "categoryId": "appetizers",
+      "name": "Veggie Samosa (2 Pcs)",
+      "priceCents": 299,
+      "optionGroups": []
+    },
+    {
+      "id": "appetizers-veggie-pakora",
+      "categoryId": "appetizers",
+      "name": "Veggie Pakora",
+      "priceCents": 399,
+      "optionGroups": []
+    },
+    {
+      "id": "appetizers-paneer-pakora",
+      "categoryId": "appetizers",
+      "name": "Paneer Pakora",
+      "priceCents": 1099,
+      "optionGroups": []
+    },
+    {
+      "id": "appetizers-fish-pakora",
+      "categoryId": "appetizers",
+      "name": "Fish Pakora",
+      "priceCents": 1199,
+      "optionGroups": []
+    },
+    {
+      "id": "appetizers-chicken-pakora",
+      "categoryId": "appetizers",
+      "name": "Chicken Pakora",
+      "priceCents": 899,
+      "optionGroups": []
+    },
+    {
+      "id": "appetizers-chana-samosa",
+      "categoryId": "appetizers",
+      "name": "Chana Samosa",
+      "priceCents": 799,
+      "optionGroups": []
+    },
+    {
+      "id": "appetizers-chaat-papri",
+      "categoryId": "appetizers",
+      "name": "Chaat Papri",
+      "priceCents": 699,
+      "optionGroups": []
+    },
+    {
+      "id": "appetizers-onion-bhaji",
+      "categoryId": "appetizers",
+      "name": "Onion Bhaji",
+      "priceCents": 399,
+      "optionGroups": []
+    },
+    {
+      "id": "appetizers-channa-bathura",
+      "categoryId": "appetizers",
+      "name": "Channa Bathura",
+      "priceCents": 999,
+      "optionGroups": []
+    },
+    {
+      "id": "appetizers-bathura",
+      "categoryId": "appetizers",
+      "name": "Bathura",
+      "priceCents": 299,
+      "optionGroups": []
+    },
+    {
+      "id": "appetizers-montreal-spl-poutine",
+      "categoryId": "appetizers",
+      "name": "Montreal Spl. Poutine",
+      "priceCents": 899,
+      "optionGroups": []
+    },
+    {
+      "id": "appetizers-butter-chicken-poutine",
+      "categoryId": "appetizers",
+      "name": "Butter Chicken Poutine",
+      "priceCents": 1199,
+      "optionGroups": []
+    },
+    {
+      "id": "appetizers-punjabi-salad",
+      "categoryId": "appetizers",
+      "name": "Punjabi Salad",
+      "priceCents": 499,
+      "optionGroups": []
+    },
+    {
+      "id": "appetizers-mulligatawny-soup",
+      "categoryId": "appetizers",
+      "name": "Mulligatawny Soup",
+      "priceCents": 899,
+      "optionGroups": []
+    },
+    {
+      "id": "tandoori-chicken-tikka",
+      "categoryId": "tandoori",
+      "name": "Chicken Tikka",
+      "priceCents": 1599,
+      "optionGroups": []
+    },
+    {
+      "id": "tandoori-paneer-tikka",
+      "categoryId": "tandoori",
+      "name": "Paneer Tikka",
+      "priceCents": 1499,
+      "optionGroups": []
+    },
+    {
+      "id": "tandoori-chicken-seekh-kabab",
+      "categoryId": "tandoori",
+      "name": "Chicken Seekh Kabab",
+      "priceCents": 1599,
+      "optionGroups": []
+    },
+    {
+      "id": "tandoori-tandoori-chicken-leg",
+      "categoryId": "tandoori",
+      "name": "Tandoori Chicken Leg",
+      "priceCents": 699,
+      "optionGroups": []
+    },
+    {
+      "id": "curries-curry-chicken",
+      "categoryId": "curries",
+      "name": "Curry Chicken",
+      "priceCents": 1499,
+      "optionGroups": []
+    },
+    {
+      "id": "curries-butter-chicken",
+      "categoryId": "curries",
+      "name": "Butter Chicken",
+      "priceCents": 1599,
+      "optionGroups": []
+    },
+    {
+      "id": "curries-madras-chicken",
+      "categoryId": "curries",
+      "name": "Madras Chicken",
+      "priceCents": 1499,
+      "optionGroups": []
+    },
+    {
+      "id": "curries-chicken-korma",
+      "categoryId": "curries",
+      "name": "Chicken Korma",
+      "priceCents": 1599,
+      "optionGroups": []
+    },
+    {
+      "id": "curries-chicken-lababdaar",
+      "categoryId": "curries",
+      "name": "Chicken Lababdaar",
+      "priceCents": 1499,
+      "optionGroups": []
+    },
+    {
+      "id": "curries-chicken-tikka-masala",
+      "categoryId": "curries",
+      "name": "Chicken Tikka Masala",
+      "priceCents": 1599,
+      "optionGroups": []
+    },
+    {
+      "id": "curries-chicken-rogan-josh",
+      "categoryId": "curries",
+      "name": "Chicken Rogan Josh",
+      "priceCents": 1499,
+      "optionGroups": []
+    },
+    {
+      "id": "curries-chicken-vindaloo-spicy",
+      "categoryId": "curries",
+      "name": "Chicken Vindaloo (Spicy)",
+      "priceCents": 1499,
+      "optionGroups": []
+    },
+    {
+      "id": "curries-lamb-korma",
+      "categoryId": "curries",
+      "name": "Lamb Korma",
+      "priceCents": 1699,
+      "optionGroups": []
+    },
+    {
+      "id": "curries-lamb-vindaloo-very-spicy",
+      "categoryId": "curries",
+      "name": "Lamb Vindaloo (Very Spicy)",
+      "priceCents": 1699,
+      "optionGroups": []
+    },
+    {
+      "id": "curries-lamb-curry",
+      "categoryId": "curries",
+      "name": "Lamb Curry",
+      "priceCents": 1599,
+      "optionGroups": []
+    },
+    {
+      "id": "curries-lamb-madras",
+      "categoryId": "curries",
+      "name": "Lamb Madras",
+      "priceCents": 1699,
+      "optionGroups": []
+    },
+    {
+      "id": "curries-butter-lamb",
+      "categoryId": "curries",
+      "name": "Butter Lamb",
+      "priceCents": 1699,
+      "optionGroups": []
+    },
+    {
+      "id": "curries-goat-curry-karahi",
+      "categoryId": "curries",
+      "name": "Goat Curry (Karahi)",
+      "priceCents": 1599,
+      "optionGroups": []
+    },
+    {
+      "id": "curries-saag-chicken-goat-lamb",
+      "categoryId": "curries",
+      "name": "Saag (Chicken/Goat/Lamb)",
+      "priceCents": 1499,
+      "optionGroups": [
+        {
+          "id": "protein",
+          "label": "Choose protein",
+          "required": true,
+          "minSelections": 1,
+          "maxSelections": 1,
+          "options": [
+            {
+              "id": "chicken",
+              "name": "Chicken",
+              "priceDeltaCents": 0
+            },
+            {
+              "id": "goat",
+              "name": "Goat",
+              "priceDeltaCents": 0
+            },
+            {
+              "id": "lamb",
+              "name": "Lamb",
+              "priceDeltaCents": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "curries-shrimp-kadahi",
+      "categoryId": "curries",
+      "name": "Shrimp Kadahi",
+      "priceCents": 1799,
+      "optionGroups": []
+    },
+    {
+      "id": "curries-shrimp-masala",
+      "categoryId": "curries",
+      "name": "Shrimp Masala",
+      "priceCents": 1799,
+      "optionGroups": []
+    },
+    {
+      "id": "curries-chana-masala",
+      "categoryId": "curries",
+      "name": "Chana Masala",
+      "priceCents": 1299,
+      "optionGroups": []
+    },
+    {
+      "id": "curries-veggie-masala",
+      "categoryId": "curries",
+      "name": "Veggie Masala",
+      "priceCents": 1399,
+      "optionGroups": []
+    },
+    {
+      "id": "curries-bhindi-masala",
+      "categoryId": "curries",
+      "name": "Bhindi Masala",
+      "priceCents": 1399,
+      "optionGroups": []
+    },
+    {
+      "id": "curries-veggie-korma",
+      "categoryId": "curries",
+      "name": "Veggie Korma",
+      "priceCents": 1399,
+      "optionGroups": []
+    },
+    {
+      "id": "curries-malai-kofta",
+      "categoryId": "curries",
+      "name": "Malai Kofta",
+      "priceCents": 1499,
+      "optionGroups": []
+    },
+    {
+      "id": "curries-daal-tarka",
+      "categoryId": "curries",
+      "name": "Daal Tarka",
+      "priceCents": 1299,
+      "optionGroups": []
+    },
+    {
+      "id": "curries-saag-tarka",
+      "categoryId": "curries",
+      "name": "Saag Tarka",
+      "priceCents": 1399,
+      "optionGroups": []
+    },
+    {
+      "id": "curries-daal-makhni",
+      "categoryId": "curries",
+      "name": "Daal Makhni",
+      "priceCents": 1499,
+      "optionGroups": []
+    },
+    {
+      "id": "curries-paneer-tikka-masala",
+      "categoryId": "curries",
+      "name": "Paneer Tikka Masala",
+      "priceCents": 1499,
+      "optionGroups": []
+    },
+    {
+      "id": "curries-paneer-lababdaar",
+      "categoryId": "curries",
+      "name": "Paneer Lababdaar",
+      "priceCents": 1499,
+      "optionGroups": []
+    },
+    {
+      "id": "curries-paneer-madras",
+      "categoryId": "curries",
+      "name": "Paneer Madras",
+      "priceCents": 1499,
+      "optionGroups": []
+    },
+    {
+      "id": "curries-shahi-paneer",
+      "categoryId": "curries",
+      "name": "Shahi Paneer",
+      "priceCents": 1499,
+      "optionGroups": []
+    },
+    {
+      "id": "curries-saag-paneer",
+      "categoryId": "curries",
+      "name": "Saag Paneer",
+      "priceCents": 1499,
+      "optionGroups": []
+    },
+    {
+      "id": "curries-mutter-paneer",
+      "categoryId": "curries",
+      "name": "Mutter Paneer",
+      "priceCents": 1499,
+      "optionGroups": []
+    },
+    {
+      "id": "curries-aloo-gobi",
+      "categoryId": "curries",
+      "name": "Aloo Gobi",
+      "priceCents": 1299,
+      "optionGroups": []
+    },
+    {
+      "id": "curries-stuffed-kulcha-with-chana",
+      "categoryId": "curries",
+      "name": "Stuffed Kulcha with Chana",
+      "priceCents": 899,
+      "optionGroups": []
+    },
+    {
+      "id": "curries-pav-bhaji",
+      "categoryId": "curries",
+      "name": "Pav Bhaji",
+      "priceCents": 999,
+      "optionGroups": []
+    },
+    {
+      "id": "curries-paneer-bhurji",
+      "categoryId": "curries",
+      "name": "Paneer Bhurji",
+      "priceCents": 1499,
+      "optionGroups": []
+    },
+    {
+      "id": "curries-kadahi-soya-chaap",
+      "categoryId": "curries",
+      "name": "Kadahi Soya Chaap",
+      "priceCents": 1499,
+      "optionGroups": []
+    },
+    {
+      "id": "curries-malai-soya-chaap",
+      "categoryId": "curries",
+      "name": "Malai Soya Chaap",
+      "priceCents": 1499,
+      "optionGroups": []
+    },
+    {
+      "id": "side-orders-naan-bread",
+      "categoryId": "side-orders",
+      "name": "Naan Bread",
+      "priceCents": 299,
+      "optionGroups": []
+    },
+    {
+      "id": "side-orders-garlic-naan",
+      "categoryId": "side-orders",
+      "name": "Garlic Naan",
+      "priceCents": 399,
+      "optionGroups": []
+    },
+    {
+      "id": "side-orders-cheese-naan",
+      "categoryId": "side-orders",
+      "name": "Cheese Naan",
+      "priceCents": 499,
+      "optionGroups": []
+    },
+    {
+      "id": "side-orders-roti",
+      "categoryId": "side-orders",
+      "name": "Roti",
+      "priceCents": 199,
+      "optionGroups": []
+    },
+    {
+      "id": "side-orders-raita",
+      "categoryId": "side-orders",
+      "name": "Raita",
+      "priceCents": 399,
+      "optionGroups": []
+    },
+    {
+      "id": "side-orders-basmati-rice",
+      "categoryId": "side-orders",
+      "name": "Basmati Rice",
+      "priceCents": 499,
+      "optionGroups": []
+    },
+    {
+      "id": "drinks-desserts-sweet-lassi",
+      "categoryId": "drinks-desserts",
+      "name": "Sweet Lassi",
+      "priceCents": 399,
+      "optionGroups": []
+    },
+    {
+      "id": "drinks-desserts-mango-lassi",
+      "categoryId": "drinks-desserts",
+      "name": "Mango Lassi",
+      "priceCents": 599,
+      "optionGroups": []
+    },
+    {
+      "id": "drinks-desserts-mango-juice",
+      "categoryId": "drinks-desserts",
+      "name": "Mango Juice",
+      "priceCents": 399,
+      "optionGroups": []
+    },
+    {
+      "id": "drinks-desserts-chai-tea",
+      "categoryId": "drinks-desserts",
+      "name": "Chai Tea",
+      "priceCents": 299,
+      "optionGroups": []
+    },
+    {
+      "id": "drinks-desserts-water",
+      "categoryId": "drinks-desserts",
+      "name": "Water",
+      "priceCents": 100,
+      "optionGroups": []
+    },
+    {
+      "id": "drinks-desserts-gulab-jamun",
+      "categoryId": "drinks-desserts",
+      "name": "Gulab Jamun",
+      "priceCents": 199,
+      "optionGroups": []
+    },
+    {
+      "id": "drinks-desserts-rasmalai",
+      "categoryId": "drinks-desserts",
+      "name": "Rasmalai",
+      "priceCents": 299,
+      "optionGroups": []
+    },
+    {
+      "id": "special-combos-non-veg-curry-combo",
+      "categoryId": "special-combos",
+      "name": "Non-Veg Curry Combo",
+      "priceCents": 1699,
+      "optionGroups": [
+        {
+          "id": "curry-choice",
+          "label": "Choose your curry",
+          "required": true,
+          "minSelections": 1,
+          "maxSelections": 1,
+          "options": [
+            {
+              "id": "chicken-curry",
+              "name": "Chicken Curry",
+              "priceDeltaCents": 0
+            },
+            {
+              "id": "chicken-vindaloo",
+              "name": "Chicken Vindaloo",
+              "priceDeltaCents": 0
+            },
+            {
+              "id": "butter-chicken",
+              "name": "Butter Chicken",
+              "priceDeltaCents": 0
+            }
+          ]
+        }
+      ],
+      "includedItems": [
+        "Naan Bread",
+        "Rice"
+      ]
+    },
+    {
+      "id": "special-combos-veg-curry-combo",
+      "categoryId": "special-combos",
+      "name": "Veg Curry Combo",
+      "priceCents": 1599,
+      "optionGroups": [
+        {
+          "id": "curry-choice",
+          "label": "Choose your curry",
+          "required": true,
+          "minSelections": 1,
+          "maxSelections": 1,
+          "options": [
+            {
+              "id": "daal-makhni",
+              "name": "Daal Makhni",
+              "priceDeltaCents": 0
+            },
+            {
+              "id": "daal-tadka",
+              "name": "Daal Tadka",
+              "priceDeltaCents": 0
+            },
+            {
+              "id": "mix-veg",
+              "name": "Mix-Veg",
+              "priceDeltaCents": 0
+            },
+            {
+              "id": "spl-chana-masala",
+              "name": "Spl. Chana Masala",
+              "priceDeltaCents": 0
+            }
+          ]
+        }
+      ],
+      "includedItems": [
+        "Naan Bread",
+        "Rice"
+      ]
+    },
+    {
+      "id": "special-combos-spl-chai-pakora",
+      "categoryId": "special-combos",
+      "name": "Spl. Chai & Pakora",
+      "priceCents": 699,
+      "optionGroups": []
+    }
+  ],
+  "unresolved": [
+    {
+      "location": "Appetizers, right column between Punjabi Salad and Mulligatawny Soup",
+      "reason": "An entry is white-obscured; name and price cannot be recovered reliably.",
+      "action": "Exclude until owner supplies the entry."
+    },
+    {
+      "location": "Special Combos, lower promotional area",
+      "reason": "White-obscured text and pixelated graphics.",
+      "action": "Do not reconstruct missing offers, terms, or products."
+    },
+    {
+      "location": "Thali inclusions",
+      "reason": "Printed wording 'Naan, Bread' is ambiguous.",
+      "action": "Confirm bread inclusions before publishing the description."
+    },
+    {
+      "location": "Spl. Chai & Pakora",
+      "reason": "Pakora variety and portion are not specified.",
+      "action": "Confirm inclusions; do not offer an invented choice."
+    }
+  ]
+}

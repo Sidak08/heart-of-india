@@ -1,0 +1,2 @@
+import type { MetadataRoute } from "next";
+export default function manifest(): MetadataRoute.Manifest { return { name: "Heart of India", short_name: "Heart of India", description: "Heart of India pickup ordering", start_url: "/", display: "standalone", background_color: "#FAF8F4", theme_color: "#750909", icons: [{ src: "/heart-of-india-logo.png", sizes: "1444x1444", type: "image/png" }] }; }
