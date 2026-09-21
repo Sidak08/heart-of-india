@@ -16,7 +16,7 @@ const schema = z.object({
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
   QUOTE_SIGNING_SECRET: z.string().min(32).optional(),
-  CRON_SECRET: z.string().min(16).optional(),
+  // CRON_SECRET: z.string().min(16).optional(), // Temporarily disabled.
   UPSTASH_REDIS_REST_URL: optionalUrl,
   UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
   PREVIEW_CART_ENABLED: z.enum(["true", "false"]).optional(),
@@ -42,7 +42,8 @@ export function runtimeReadiness() {
     ["RESEND_API_KEY", env.RESEND_API_KEY], ["RESEND_FROM_EMAIL", env.RESEND_FROM_EMAIL],
     ["ORDER_NOTIFICATION_EMAIL", env.ORDER_NOTIFICATION_EMAIL], ["STRIPE_SECRET_KEY", env.STRIPE_SECRET_KEY],
     ["STRIPE_WEBHOOK_SECRET", env.STRIPE_WEBHOOK_SECRET], ["QUOTE_SIGNING_SECRET", env.QUOTE_SIGNING_SECRET],
-    ["CRON_SECRET", env.CRON_SECRET], ["UPSTASH_REDIS_REST_URL", env.UPSTASH_REDIS_REST_URL],
+    // ["CRON_SECRET", env.CRON_SECRET], // Temporarily disabled.
+    ["UPSTASH_REDIS_REST_URL", env.UPSTASH_REDIS_REST_URL],
     ["UPSTASH_REDIS_REST_TOKEN", env.UPSTASH_REDIS_REST_TOKEN], ["OPERATOR_EMAILS", env.OPERATOR_EMAILS],
   ].filter(([, value]) => !value).map(([key]) => key);
   return { ready: missing.length === 0, missing };

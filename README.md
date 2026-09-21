@@ -110,6 +110,12 @@ Only immediate card payment is enabled initially. Do not add delayed payment met
 
 Verify a sender domain in Resend, set `RESEND_FROM_EMAIL` to an address on that domain, and set the restaurant recipient only in `ORDER_NOTIFICATION_EMAIL`.
 
+**Cron is temporarily disabled:** the endpoint returns 503 and the schedule is removed from `vercel.json` (JSON does not support comments). Immediate webhook delivery and operator retries remain available. To restore cron, uncomment the handler and `CRON_SECRET` configuration and add the following property back to `vercel.json`:
+
+```json
+"crons": [{ "path": "/api/cron/notifications", "schedule": "* * * * *" }]
+```
+
 The verified Stripe webhook inserts both notification jobs in the same transaction as the paid transition. It then awaits a small immediate delivery batch. Vercel Cron calls `/api/cron/notifications` every minute and authenticates with `CRON_SECRET`. Failed jobs back off up to one hour, stale locks recover after ten minutes, and terminal failures remain in PostgreSQL. The operator order view shows delivery status and retries failed/terminal jobs. External email delivery is idempotent where Resend supports it, but the system does not promise exactly-once delivery.
 
 Monitor:
