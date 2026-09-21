@@ -45,6 +45,7 @@ try {
 
   await page.goto(`${baseURL}/order/${orderId}?cancelled=1`);
   await page.getByRole("heading", { name: "Your cart is still here" }).waitFor();
+  await page.getByText("No successful payment has been confirmed for this attempt.", { exact: false }).waitFor();
   await page.screenshot({ path: "artifacts/screenshots/confirmation-cancelled-390x844.png", fullPage: true });
 
   await sql`update orders set payment_status = 'paid', stripe_payment_intent_id = ${`pi_qa_${orderId.slice(0, 8)}`}, paid_at = now(), updated_at = now() where id = ${orderId}`;
@@ -52,6 +53,7 @@ try {
   await page.getByRole("heading", { name: "Thank you for your order" }).waitFor();
   await page.getByText("Choose protein: Goat").waitFor();
   await page.getByText("CA$14.99", { exact: true }).last().waitFor();
+  await page.waitForTimeout(500);
   await page.screenshot({ path: "artifacts/screenshots/confirmation-paid-390x844.png", fullPage: true });
   if (errors.length) throw new Error(`Browser errors during confirmation QA: ${JSON.stringify(errors)}`);
   console.log(`Confirmation QA passed for authorised cancelled and paid states (${orderNumber}).`);

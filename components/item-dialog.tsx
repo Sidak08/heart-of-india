@@ -12,7 +12,7 @@ import { formatCad, type MenuItem } from "@/lib/menu";
 type Props = { item: MenuItem | null; open: boolean; onOpenChange: (open: boolean) => void; editingLineId?: string; initialSelections?: CartSelections; initialQuantity?: number; onAdded?: (name: string) => void; returnFocusId?: string };
 
 export function ItemDialog({ item, open, onOpenChange, editingLineId, initialSelections, initialQuantity = 1, onAdded, returnFocusId }: Props) {
-  return <Dialog.Root open={open} onOpenChange={onOpenChange}>{open && item ? <ItemDialogPanel key={`${item.id}:${editingLineId ?? "new"}`} item={item} onOpenChange={onOpenChange} editingLineId={editingLineId} initialSelections={initialSelections} initialQuantity={initialQuantity} onAdded={onAdded} returnFocusId={returnFocusId} /> : null}</Dialog.Root>;
+  return <Dialog.Root open={open} onOpenChange={onOpenChange}>{item ? <ItemDialogPanel key={`${item.id}:${editingLineId ?? "new"}`} item={item} onOpenChange={onOpenChange} editingLineId={editingLineId} initialSelections={initialSelections} initialQuantity={initialQuantity} onAdded={onAdded} returnFocusId={returnFocusId} /> : null}</Dialog.Root>;
 }
 
 function ItemDialogPanel({ item, onOpenChange, editingLineId, initialSelections, initialQuantity, onAdded, returnFocusId }: Omit<Props, "item" | "open" | "initialQuantity"> & { item: MenuItem; initialQuantity: number }) {

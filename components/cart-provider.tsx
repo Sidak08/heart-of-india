@@ -8,6 +8,7 @@ const STORAGE_KEY = "heart-of-india-cart-v1";
 
 type CartContextValue = {
   lines: CartLine[]; itemCount: number; subtotalCents: number; hydrated: boolean; storageAvailable: boolean;
+  cartPulseToken: number;
   cartOpen: boolean; cartReturnFocusId: string; setCartOpen: (open: boolean) => void; openCart: (returnFocusId: string) => void;
   addItem: (item: MenuItem, selections?: CartSelections, quantity?: number) => { ok: boolean; lineId?: string };
   updateQuantity: (lineId: string, quantity: number) => void;
@@ -34,6 +35,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const [storageAvailable, setStorageAvailable] = useState(true);
   const [cartOpen, setCartOpen] = useState(false);
   const [cartReturnFocusId, setCartReturnFocusId] = useState("site-cart-trigger");
+  const [cartPulseToken, setCartPulseToken] = useState(0);
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -62,10 +64,15 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       lineId = crypto.randomUUID();
       return [...current, { lineId, itemId: item.id, quantity, selections, displayName: item.name, unitPriceCents: calculateUnitPrice(item, selections) }];
     });
+    setCartPulseToken((current) => current + 1);
     return { ok: true, lineId };
   }, []);
 
-  const updateQuantity = useCallback((lineId: string, quantity: number) => setLines((current) => quantity <= 0 ? current.filter((line) => line.lineId !== lineId) : current.map((line) => line.lineId === lineId ? { ...line, quantity: Math.min(20, Math.max(1, quantity)) } : line)), []);
+  const updateQuantity = useCallback((lineId: string, quantity: number) => {
+    const increased = Boolean(lines.find((line) => line.lineId === lineId && quantity > line.quantity));
+    setLines((current) => quantity <= 0 ? current.filter((line) => line.lineId !== lineId) : current.map((line) => line.lineId === lineId ? { ...line, quantity: Math.min(20, Math.max(1, quantity)) } : line));
+    if (increased) setCartPulseToken((current) => current + 1);
+  }, [lines]);
   const removeLine = useCallback((lineId: string) => setLines((current) => current.filter((line) => line.lineId !== lineId)), []);
   const replaceLine = useCallback((lineId: string, item: MenuItem, selections: CartSelections, quantity: number) => {
     if (!validateSelections(item, selections)) return;
@@ -86,7 +93,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const clear = useCallback(() => setLines([]), []);
   const openCart = useCallback((returnFocusId: string) => { setCartReturnFocusId(returnFocusId); setCartOpen(true); }, []);
 
-  const value = useMemo(() => ({ lines, itemCount: lines.reduce((sum, line) => sum + line.quantity, 0), subtotalCents: cartSubtotal(lines), hydrated, storageAvailable, cartOpen, cartReturnFocusId, setCartOpen, openCart, addItem, updateQuantity, removeLine, replaceLine, clearPurchasedSnapshot, clear }), [lines, hydrated, storageAvailable, cartOpen, cartReturnFocusId, openCart, addItem, updateQuantity, removeLine, replaceLine, clearPurchasedSnapshot, clear]);
+  const value = useMemo(() => ({ lines, itemCount: lines.reduce((sum, line) => sum + line.quantity, 0), subtotalCents: cartSubtotal(lines), hydrated, storageAvailable, cartOpen, cartReturnFocusId, cartPulseToken, setCartOpen, openCart, addItem, updateQuantity, removeLine, replaceLine, clearPurchasedSnapshot, clear }), [lines, hydrated, storageAvailable, cartOpen, cartReturnFocusId, cartPulseToken, openCart, addItem, updateQuantity, removeLine, replaceLine, clearPurchasedSnapshot, clear]);
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
 }
 
