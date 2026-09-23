@@ -743,6 +743,13 @@ a.operator-hub-card:hover, a.operator-hub-card:focus-visible { border-color: var
 .operator-status-bar span { display: inline-flex; align-items: center; gap: 9px; }
 .operator-status-bar > div { display: flex; align-items: center; gap: 14px; }
 .operator-status-bar small { color: var(--muted); }
+.operator-data-warning { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 13px; margin: 0 0 20px; padding: 16px; border: 1px solid #e4b36d; border-radius: 14px; background: #fff8ea; color: #633913; }
+.operator-data-warning > svg { margin-top: 2px; color: #9a4d08; }
+.operator-data-warning h2 { margin: 0 0 3px; color: #74220f; font: 700 1.2rem/1.2 var(--font-display), Georgia, serif; }
+.operator-data-warning p { margin: 4px 0; line-height: 1.5; }
+.operator-data-warning ul { display: grid; gap: 7px; margin: 12px 0; padding: 0; list-style: none; }
+.operator-data-warning li { display: grid; gap: 2px; padding: 9px 11px; border-left: 3px solid var(--saffron); background: rgba(255, 255, 255, .72); overflow-wrap: anywhere; }
+.operator-data-warning li span { font-size: .84rem; }
 .live-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 5px rgba(19, 136, 8, .1); }
 .live-dot.checking { animation: live-check 900ms ease-in-out infinite alternate; }
 @keyframes live-check { to { opacity: .52; transform: scale(.78); } }

@@ -255,7 +255,7 @@ Successful output lists these tabs:
 - `PushSubscriptions`
 - `LoginAttempts`
 
-The command also adds the headers, seeds all 80 menu items, and creates the initial settings row. It is safe to rerun: it repairs headers and only fills Menu or Settings when their data rows are empty. It does not intentionally erase orders.
+The command also adds the headers, seeds all 80 menu items, and creates the initial settings row. It is safe to rerun: it repairs headers and only fills Menu or Settings when their data rows are empty. It does not intentionally erase orders. Rerun it after deploying an application update that adds Sheet columns. The current Orders layout requires `previous_updated_at` and `mutation_id`, and LoginAttempts requires `mutation_id`; existing older rows remain compatible.
 
 If the command fails:
 
@@ -550,6 +550,8 @@ The retention-days setting records the owner's policy but does not automatically
 
 Before deleting rows, confirm that the restaurant no longer needs them for tax, accounting, charge dispute, or other lawful recordkeeping purposes.
 
+The `Orders` tab is append-only: status changes add version rows instead of rewriting the original receipt. When applying the retention policy, delete every row with the same `order_id`, not only the most recent status row. The `LoginAttempts` tab also uses append-only events; periodically delete rows whose `expires_at` is in the past so the tab does not grow indefinitely.
+
 ### Backups
 
 Use Google Sheets version history or an owner-controlled export process. Backups contain personal information and must be kept private, access-controlled, and deleted according to the same approved policy.
@@ -582,7 +584,8 @@ Use Google Sheets version history or an owner-controlled export process. Backups
 | Push controls say VAPID is missing | Set all three VAPID variables and redeploy. |
 | Push permission does not appear | Use HTTPS; check browser support/settings; on iPhone/iPad use the installed Home Screen app. |
 | Push fails but the customer ordered | Check the dashboard and `Orders` tab. The saved order remains authoritative. |
-| Customer cannot open status on another device | Access is protected by an order-scoped HttpOnly cookie in the original browser. Staff can use the dashboard and order number to assist. |
+| Customer cannot open status on another device | Use the complete private status link, including its `#access=...` part. The customer page asks the customer to bookmark it and take a screenshot. The order number alone cannot reveal customer details. |
+| Dashboard warns that spreadsheet rows need attention | Open the private `Orders` tab and inspect the listed row numbers. Correct the invalid status, date, amount, or JSON value without deleting valid order versions. The warning clears on the next dashboard refresh. |
 | Settings or menu changes seem delayed | Public menu/settings reads may be cached for approximately 30 seconds. |
 
 ## 16. Cost and capacity notes

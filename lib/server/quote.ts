@@ -1,9 +1,10 @@
 import "server-only";
 
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { restaurant as seedRestaurant, type MenuItem } from "@/lib/menu";
 import type { OrderLineSnapshot } from "@/lib/operations";
-import { runtimeReadiness } from "@/lib/server/env";
+import { env, runtimeReadiness } from "@/lib/server/env";
 import { getOrderingWindow } from "@/lib/server/hours";
 import { getFallbackMenu, getFallbackSettings, readMenu, readSettings, usingSheetsTestMode } from "@/lib/server/sheets";
 
@@ -13,7 +14,7 @@ export const cartLineSchema = z.object({
 }).strict();
 
 export const quoteRequestSchema = z.object({
-  lines: z.array(cartLineSchema).min(1).max(30), acceptedCatalogRevision: z.number().int().positive().optional(),
+  lines: z.array(cartLineSchema).min(1).max(30),
 }).strict().superRefine((value, context) => {
   if (value.lines.reduce((sum, line) => sum + line.quantity, 0) > 50) context.addIssue({ code: "custom", message: "A maximum of 50 items is allowed.", path: ["lines"] });
   const ids = value.lines.map((line) => line.lineId);
@@ -24,7 +25,56 @@ export type Quote = {
   currency: "CAD"; catalogRevision: number; lines: OrderLineSnapshot[]; subtotalCents: number; taxCents: number;
   feeCents: number; totalCents: number; taxBreakdown: Array<{ label: string; amountCents: number; inclusive: boolean }>;
   orderable: boolean; blockers: string[]; pickupAddress: typeof seedRestaurant.address; pickupEstimateText: string | null;
+  quoteToken: string; quoteExpiresAt: string;
 };
+
+type QuoteDetails = Omit<Quote, "quoteToken" | "quoteExpiresAt">;
+const quoteTokenPayloadSchema = z.object({ version: z.literal(1), fingerprint: z.string().regex(/^[a-f0-9]{64}$/), expiresAt: z.string().datetime() }).strict();
+const QUOTE_LIFETIME_MS = 10 * 60_000;
+
+function quoteSigningSecret() {
+  return env.ORDER_ACCESS_SECRET ?? "ordering-is-disabled-until-order-access-is-configured";
+}
+
+function quoteFingerprint(quote: QuoteDetails) {
+  return createHash("sha256").update(JSON.stringify(quote)).digest("hex");
+}
+
+function signPayload(payload: string) {
+  return createHmac("sha256", quoteSigningSecret()).update(payload).digest("base64url");
+}
+
+function issueQuoteToken(quote: QuoteDetails) {
+  const quoteExpiresAt = new Date(Date.now() + QUOTE_LIFETIME_MS).toISOString();
+  const payload = Buffer.from(JSON.stringify({ version: 1, fingerprint: quoteFingerprint(quote), expiresAt: quoteExpiresAt })).toString("base64url");
+  return { quoteToken: `${payload}.${signPayload(payload)}`, quoteExpiresAt };
+}
+
+export function verifyAcceptedQuoteToken(token: string, quote: Quote) {
+  const [payload, signature, extra] = token.split(".");
+  if (!payload || !signature || extra) return false;
+  const expected = Buffer.from(signPayload(payload)); const received = Buffer.from(signature);
+  if (expected.length !== received.length || !timingSafeEqual(expected, received)) return false;
+  try {
+    const parsed = quoteTokenPayloadSchema.safeParse(JSON.parse(Buffer.from(payload, "base64url").toString("utf8")));
+    if (!parsed.success || Date.parse(parsed.data.expiresAt) <= Date.now()) return false;
+    const details: QuoteDetails = {
+      currency: quote.currency,
+      catalogRevision: quote.catalogRevision,
+      lines: quote.lines,
+      subtotalCents: quote.subtotalCents,
+      taxCents: quote.taxCents,
+      feeCents: quote.feeCents,
+      totalCents: quote.totalCents,
+      taxBreakdown: quote.taxBreakdown,
+      orderable: quote.orderable,
+      blockers: quote.blockers,
+      pickupAddress: quote.pickupAddress,
+      pickupEstimateText: quote.pickupEstimateText,
+    };
+    return parsed.data.fingerprint === quoteFingerprint(details);
+  } catch { return false; }
+}
 
 function validateOptions(item: MenuItem, selections: Record<string, string>) {
   if (Object.keys(selections).some((groupId) => !item.optionGroups.some((group) => group.id === groupId))) throw new Error(`Invalid option group for ${item.name}.`);
@@ -64,5 +114,6 @@ export async function createQuote(input: z.infer<typeof quoteRequestSchema>): Pr
     ...(!hours.open && hours.reason ? [hours.reason] : []),
   ];
   const pickupEstimateText = settings.prepMinMinutes ? settings.prepMaxMinutes && settings.prepMaxMinutes !== settings.prepMinMinutes ? `${settings.prepMinMinutes}–${settings.prepMaxMinutes} minutes after the order is placed` : `${settings.prepMinMinutes} minutes after the order is placed` : null;
-  return { currency: "CAD", catalogRevision: settings.catalogRevision, lines, subtotalCents, taxCents, feeCents: 0, totalCents: subtotalCents + taxCents, taxBreakdown, orderable: blockers.length === 0, blockers: [...new Set(blockers)], pickupAddress: settings.address, pickupEstimateText };
+  const details: QuoteDetails = { currency: "CAD", catalogRevision: settings.catalogRevision, lines, subtotalCents, taxCents, feeCents: 0, totalCents: subtotalCents + taxCents, taxBreakdown, orderable: blockers.length === 0, blockers: [...new Set(blockers)], pickupAddress: settings.address, pickupEstimateText };
+  return { ...details, ...issueQuoteToken(details) };
 }

@@ -4,6 +4,16 @@ Audit date: September 23, 2026
 Scope: current local Next.js application, public ordering flow, operator workflow, Google Sheets persistence, Web Push, security controls, responsive layouts, accessibility, and failure handling.  
 Change policy: this audit did not change application code or production data. Adversarial order and menu-mutation checks ran against the test-only in-memory adapter. The configured Google Sheet was checked with read-only menu and quote requests.
 
+## Remediation update — September 23, 2026
+
+The three findings originally rated **High** have been addressed in the implementation:
+
+- **H-01:** checkout now requires a short-lived HMAC-signed quote token bound to the complete server quote, including item IDs, line IDs, options, quantities, catalogue revision, totals, and orderability. A changed same-price cart receives `409` and a fresh quote.
+- **H-02:** order creation and status changes now append immutable mutation rows. Canonical row-order conflict resolution prevents duplicate create notification work and last-writer overwrites; conflicts are reported to the operator. Persistent rate-limit accounting now appends one uniquely identified event per request.
+- **H-03:** order rows are schema-validated. Malformed rows are returned as safe diagnostics with Sheet row numbers and shown in the authenticated order dashboard instead of disappearing silently.
+
+The original findings below remain as the audit record and explain the pre-remediation failure modes.
+
 ## Executive summary
 
 The normal ordering path is in good shape. The server resolves trusted catalogue data, validates item and option IDs, calculates money in integer cents, protects operator routes, scopes customer order access with a high-entropy token, and fails closed when durable storage is unavailable. The current configured catalogue returned 80 items and a valid orderable quote. The normal automated suite, build, and dependency audit pass.
@@ -25,6 +35,8 @@ The most important customer-facing problems after those are inconsistent availab
 ## High-priority findings
 
 ### H-01 — The accepted quote is not bound to the cart lines the customer reviewed
+
+**Status:** Remediated on September 23, 2026. See the remediation update above.
 
 **Where**
 
@@ -54,6 +66,8 @@ The kitchen can prepare a different dish from the receipt the customer believed 
 
 ### H-02 — Google Sheets cannot enforce atomic order idempotency or status updates
 
+**Status:** Remediated within the current Sheets architecture on September 23, 2026. Mutations are append-only and deterministically resolved; the database-upgrade caveat still applies at higher scale.
+
 **Where**
 
 - `lib/server/orders.ts:35-55`
@@ -79,6 +93,8 @@ The code performs read-check-write sequences. Google Sheets offers no unique con
 The robust fix is a transactional data store with unique constraints on order ID and attempt ID, plus conditional updates on a version column. If Google Sheets must remain the only store, route all mutations through one serialized lock service or an Apps Script endpoint using `LockService`, keep an append-only operation ledger, make notification delivery idempotent by order ID, and explicitly surface duplicate/conflict recovery in the operator UI. Document that this remains weaker than a database under serverless concurrency.
 
 ### H-03 — Invalid order rows silently disappear from the operator dashboard
+
+**Status:** Remediated on September 23, 2026. Invalid rows are quarantined into authenticated dashboard diagnostics.
 
 **Where**
 

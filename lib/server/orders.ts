@@ -6,16 +6,15 @@ import type { FulfillmentStatus, PaymentStatus, StoredOrder } from "@/lib/operat
 import { fulfillmentStatusSchema, paymentStatusSchema } from "@/lib/operations";
 import { env } from "@/lib/server/env";
 import { sendNewOrderNotifications } from "@/lib/server/push";
-import { cartLineSchema, createQuote } from "@/lib/server/quote";
-import { appendOrder, findOrderByAttempt, findOrderById, listOrders, updateOrder, usingSheetsTestMode } from "@/lib/server/sheets";
+import { cartLineSchema, createQuote, verifyAcceptedQuoteToken } from "@/lib/server/quote";
+import { appendOrder, findOrderByAttempt, findOrderById, listOrders, listOrdersWithDiagnostics, updateOrder, usingSheetsTestMode } from "@/lib/server/sheets";
 import { hashToken, safeEqual } from "@/lib/server/security";
 
 export const createOrderRequestSchema = z.object({
   attemptId: z.string().uuid(),
   customer: z.object({ name: z.string().trim().min(2).max(80), email: z.string().trim().email().max(254), phone: z.string().trim().min(7).max(30), notes: z.string().trim().max(500).default("") }).strict(),
   lines: z.array(cartLineSchema).min(1).max(30),
-  acceptedCatalogRevision: z.number().int().positive(),
-  acceptedTotalCents: z.number().int().nonnegative(),
+  acceptedQuoteToken: z.string().min(80).max(2048),
 }).strict();
 
 export const updateOrderRequestSchema = z.object({
@@ -36,8 +35,8 @@ function orderNumber(attemptId: string, createdAt: string) { const stamp = creat
 export async function createOrder(input: z.infer<typeof createOrderRequestSchema>) {
   const existing = await findOrderByAttempt(input.attemptId);
   if (existing) return { changed: false as const, order: existing, guestToken: guestToken(input.attemptId), existing: true };
-  const quote = await createQuote({ lines: input.lines, acceptedCatalogRevision: input.acceptedCatalogRevision });
-  if (quote.catalogRevision !== input.acceptedCatalogRevision || quote.totalCents !== input.acceptedTotalCents) return { changed: true as const, quote };
+  const quote = await createQuote({ lines: input.lines });
+  if (!verifyAcceptedQuoteToken(input.acceptedQuoteToken, quote)) return { changed: true as const, quote };
   if (!quote.orderable) throw new Error(quote.blockers[0] ?? "Online ordering is unavailable.");
   const createdAt = new Date().toISOString(); const token = guestToken(input.attemptId);
   const order: StoredOrder = {
@@ -50,7 +49,12 @@ export async function createOrder(input: z.infer<typeof createOrderRequestSchema
     cartSnapshot: quote.lines.map(({ lineId, itemId, quantity }) => ({ lineId, itemId, quantity })), lines: quote.lines,
     createdAt, updatedAt: createdAt, paidAt: null,
   };
-  await appendOrder(order);
+  const committed = await appendOrder(order);
+  if (!committed) {
+    const winner = await findOrderByAttempt(input.attemptId);
+    if (!winner) throw new Error("The order could not be confirmed. Please try again.");
+    return { changed: false as const, order: winner, guestToken: token, existing: true };
+  }
   let notification = { configured: false, sent: 0, failed: 0 };
   try { notification = await sendNewOrderNotifications(order); } catch { /* The dashboard and sheet remain the durable recovery path. */ }
   return { changed: false as const, order, guestToken: token, existing: false, notification };
@@ -63,6 +67,11 @@ export async function getGuestOrder(orderId: string, token: string) {
 }
 
 export async function listOperatorOrders() { return (await listOrders()).slice(0, 500); }
+
+export async function getOperatorOrderSnapshot() {
+  const snapshot = await listOrdersWithDiagnostics();
+  return { ...snapshot, orders: snapshot.orders.slice(0, 500) };
+}
 
 export async function setOrderStatus(id: string, values: { fulfillmentStatus?: FulfillmentStatus; paymentStatus?: PaymentStatus; expectedUpdatedAt: string }) {
   const current = await findOrderById(id); if (!current) throw new Error("Order was not found.");

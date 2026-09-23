@@ -71,13 +71,13 @@ The reusable password is not stored in source, the spreadsheet, or browser stora
 
 `npm run sheets:setup` creates five tabs and freezes their header rows:
 
-- **Orders** — one complete immutable order snapshot per row, plus current fulfillment/payment state and readable item summary.
+- **Orders** — append-only immutable order snapshots. The first row creates an order; later rows record status versions linked by `previous_updated_at`. Deterministic conflict resolution keeps one current version without overwriting history.
 - **Menu** — seeded item IDs plus the customer-facing name, category, price, and availability. IDs must remain unchanged. Edits made through Operator Settings advance `catalog_revision` automatically.
 - **Settings** — one restaurant configuration row, including business details, hours, policies, approvals, and the ordering switch.
 - **PushSubscriptions** — enrolled operator devices and last push result. Treat endpoints and keys as private operational data.
-- **LoginAttempts** — hashed client identifiers used to throttle operator sign-in attempts.
+- **LoginAttempts** — append-only, hashed request events used to throttle operator sign-in and order creation without storing raw client addresses.
 
-The setup command is safe to run again: it repairs headers and fills Menu/Settings only when their data rows are empty. It does not erase orders.
+The setup command is safe to run again: it repairs headers and fills Menu/Settings only when their data rows are empty. It does not erase orders. Rerun it after an application update that adds Sheet columns; older order rows remain readable.
 
 ## Owner workflow
 
@@ -109,7 +109,7 @@ No OAuth callback, payment webhook, email domain, Redis instance, PostgreSQL ser
 - Customer name, email, phone, notes, and receipt are personal information. Configure a retention period and periodically remove expired records according to the approved privacy policy.
 - Push lock-screen text contains only the order number, not customer information.
 
-Google Sheets does not offer database transactions or uniqueness constraints. The application uses deterministic order identity, checkout-attempt reuse, logical deduplication, and update timestamps, but it cannot provide the same concurrent-write guarantees as PostgreSQL. This tradeoff is suitable only for the expected low-volume, single-location workflow.
+Google Sheets does not offer database transactions or uniqueness constraints. The application therefore appends every order mutation, uses a deterministic order identity, and selects one canonical create/status version by Sheet row order. Duplicate create attempts do not send a second notification, conflicting status versions are exposed in the authenticated dashboard, and rate-limit requests are recorded as append-only events. This is suitable for the expected low-volume, single-location workflow, but a relational database remains the appropriate upgrade for materially higher write concurrency.
 
 ## Updating the menu
 

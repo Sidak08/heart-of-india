@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { createQuote, quoteRequestSchema } from "@/lib/server/quote";
+import { describe, expect, it, vi } from "vitest";
+import { createQuote, quoteRequestSchema, verifyAcceptedQuoteToken } from "@/lib/server/quote";
 
 describe("server quote", () => {
   it("resolves trusted names, prices, and 13% HST", async () => {
@@ -10,6 +10,16 @@ describe("server quote", () => {
   it("retains required options", async () => {
     const quote = await createQuote({ lines: [{ lineId: "11111111-1111-4111-8111-111111111112", itemId: "curries-saag-chicken-goat-lamb", quantity: 1, selections: { protein: "goat" } }] });
     expect(quote.lines[0].selections[0]).toMatchObject({ groupId: "protein", optionId: "goat", optionName: "Goat" });
+  });
+  it("accepts an unchanged signed quote and expires it after ten minutes", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-09-23T16:00:00.000Z"));
+      const quote = await createQuote({ lines: [{ lineId: "11111111-1111-4111-8111-111111111113", itemId: "drinks-desserts-water", quantity: 1, selections: {} }] });
+      expect(verifyAcceptedQuoteToken(quote.quoteToken, quote)).toBe(true);
+      vi.advanceTimersByTime(10 * 60_000 + 1);
+      expect(verifyAcceptedQuoteToken(quote.quoteToken, quote)).toBe(false);
+    } finally { vi.useRealTimers(); }
   });
   it("rejects unknown items and bad option choices", async () => {
     await expect(createQuote({ lines: [{ lineId: "11111111-1111-4111-8111-111111111111", itemId: "made-up", quantity: 1, selections: {} }] })).rejects.toThrow(/no longer exist/i);

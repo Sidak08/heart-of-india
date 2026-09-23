@@ -57,9 +57,7 @@ export function MenuClient({ categories, menuItems }: { categories: MenuCategory
         return;
       }
       const fallback = window.setTimeout(finish, 1200);
-      const onScrollEnd = () => finish();
-      window.addEventListener("scrollend", onScrollEnd, { once: true });
-      cancelCategoryScrollRelease.current = () => { window.clearTimeout(fallback); window.removeEventListener("scrollend", onScrollEnd); };
+      cancelCategoryScrollRelease.current = () => window.clearTimeout(fallback);
       target.scrollIntoView({ behavior: "smooth", block: "start" });
     });
   };

@@ -25,6 +25,26 @@ test("checkout validates fields and creates a bookmarkable private order link", 
     await expect(cleanPage.getByRole("heading", { name: "Your order was received" })).toBeVisible(); await expect(cleanPage.getByRole("heading", { name: "Save your order details" })).toBeVisible();
   } finally { await cleanContext.close(); }
 });
+test("checkout removes an accepted quote as soon as the cart changes", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "The checkout request-race regression is covered once.");
+  await page.getByLabel("Search the menu").fill("Roti");
+  await page.getByRole("button", { name: "Add Roti", exact: true }).click();
+  await page.getByLabel("Search the menu").fill("Gulab Jamun");
+  await page.getByRole("button", { name: "Add Gulab Jamun", exact: true }).click();
+  await page.goto("/checkout");
+  await expect(page.getByRole("button", { name: "Place pickup order" })).toBeEnabled();
+  await page.route("**/api/quote", async (route) => route.fulfill({ status: 204 }));
+  await page.getByRole("button", { name: /Open cart, 2 items/ }).click();
+  const cart = page.getByRole("dialog", { name: "Cart" });
+  const gulab = cart.locator("article.cart-line").filter({ hasText: "Gulab Jamun" });
+  await gulab.getByRole("button", { name: "Increase Gulab Jamun quantity" }).click();
+  const roti = cart.locator("article.cart-line").filter({ hasText: "Roti" });
+  await roti.getByRole("button", { name: "Remove" }).click();
+  await cart.getByRole("button", { name: "Close cart" }).click();
+  await expect(page.getByText("We could not confirm the order.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Place pickup order" })).toHaveCount(0);
+  await expect(page.getByText("1 × Roti")).toHaveCount(0);
+});
 test("mobile has no page-level horizontal overflow and exposes cart bar", async ({ page }) => { await page.setViewportSize({ width: 320, height: 700 }); await page.getByRole("button", { name: "Add Water" }).click(); await expect(page.getByRole("button", { name: /View Cart/ })).toBeVisible(); expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true); });
 test("mobile category selection stays active while smooth scrolling", async ({ page }) => { await page.setViewportSize({ width: 390, height: 844 }); const chips = page.locator(".category-chips"); const selected = chips.getByRole("link", { name: "Special Combos" }); await selected.click(); const observed = await page.evaluate(async () => { const labels: Array<string | null> = []; for (let sample = 0; sample < 14; sample += 1) { labels.push(document.querySelector(".category-chips a.active")?.textContent?.trim() ?? null); await new Promise((resolve) => window.setTimeout(resolve, 60)); } return labels; }); expect(new Set(observed)).toEqual(new Set(["Special Combos"])); await expect(selected).toHaveClass(/active/); await expect(page.getByRole("heading", { name: "Special Combos", exact: true })).toBeVisible(); });
 test("no-result state clears back to the complete menu", async ({ page }) => { await page.getByLabel("Search the menu").fill("definitely not a dish"); await expect(page.getByRole("heading", { name: "No dishes found" })).toBeVisible(); await page.locator(".no-results").getByRole("button", { name: "Clear search" }).click(); await expect(page.getByRole("heading", { name: "Thali", exact: true })).toBeVisible(); });

@@ -1,22 +1,24 @@
 import "server-only";
 
+import { randomUUID } from "node:crypto";
 import { GoogleAuth } from "google-auth-library";
+import { z } from "zod";
 import menuSeed from "@/heart-of-india-menu.json";
 import fallbackSettingsJson from "@/data/restaurant-config.json";
 import type { MenuItem } from "@/lib/menu";
-import type { RestaurantSettings, StoredOrder } from "@/lib/operations";
+import type { OrderDataIssue, RestaurantSettings, StoredOrder } from "@/lib/operations";
 import { fulfillmentStatusSchema, paymentStatusSchema } from "@/lib/operations";
 import { env, sheetsConfigured } from "@/lib/server/env";
 
 export const SHEET_NAMES = ["Orders", "Menu", "Settings", "PushSubscriptions", "LoginAttempts"] as const;
 
-const ORDER_HEADERS = [
+export const ORDER_HEADERS = [
   "schema_version", "order_id", "order_number", "attempt_id", "created_at", "updated_at",
   "fulfillment_status", "payment_status", "payment_method", "paid_at", "customer_name",
   "customer_email", "customer_phone", "customer_notes", "currency", "subtotal_cents",
   "tax_cents", "fee_cents", "total_cents", "tax_breakdown_json", "pickup_address_json",
   "pickup_estimate", "catalog_revision", "items_summary", "lines_json", "cart_snapshot_json",
-  "guest_token_hash", "guest_access_expires_at",
+  "guest_token_hash", "guest_access_expires_at", "previous_updated_at", "mutation_id",
 ] as const;
 
 const MENU_HEADERS = ["item_id", "name", "category_id", "price_cents", "availability", "updated_at"] as const;
@@ -30,7 +32,7 @@ const SETTINGS_HEADERS = [
 ] as const;
 
 const PUSH_HEADERS = ["device_id", "endpoint", "p256dh", "auth", "enabled", "created_at", "updated_at", "last_success_at", "last_error"] as const;
-const RATE_HEADERS = ["key_hash", "bucket", "window_started_at", "count", "expires_at"] as const;
+const RATE_HEADERS = ["key_hash", "bucket", "window_started_at", "count", "expires_at", "mutation_id"] as const;
 
 type SheetValue = string | number | boolean | null;
 type PushSubscriptionRecord = {
@@ -196,49 +198,124 @@ function parseSettings(row: SheetValue[]): RestaurantSettings {
   };
 }
 
-function orderToRow(order: StoredOrder): SheetValue[] {
+type OrderRowMetadata = { previousUpdatedAt: string | null; mutationId: string | null };
+type ParsedOrderRow = OrderRowMetadata & { rowNumber: number; order: StoredOrder };
+
+const isoDateSchema = z.string().datetime();
+const addressSchema = z.object({ street: z.string().min(1), city: z.string().min(1), province: z.string().min(1), postalCode: z.string().min(1), country: z.string().min(1) }).strict();
+const orderSelectionSchema = z.object({ groupId: z.string().min(1), groupLabel: z.string().min(1), optionId: z.string().min(1), optionName: z.string().min(1), priceDeltaCents: z.number().int() }).strict();
+const orderLineSchema = z.object({
+  lineId: z.string().uuid(), itemId: z.string().min(1), name: z.string().min(1), quantity: z.number().int().min(1).max(20),
+  selections: z.array(orderSelectionSchema), unitPriceCents: z.number().int().nonnegative(), lineTotalCents: z.number().int().nonnegative(),
+}).strict().refine((line) => line.lineTotalCents === line.unitPriceCents * line.quantity, { message: "line total does not match price and quantity" });
+const cartSnapshotSchema = z.array(z.object({ lineId: z.string().uuid(), itemId: z.string().min(1), quantity: z.number().int().min(1).max(20) }).strict()).min(1);
+const taxBreakdownSchema = z.array(z.object({ label: z.string().min(1), amountCents: z.number().int().nonnegative(), inclusive: z.boolean() }).strict());
+const parsedOrderSchema = z.object({
+  schemaVersion: z.literal(1), id: z.string().uuid(), orderNumber: z.string().min(1), attemptId: z.string().uuid(), createdAt: isoDateSchema, updatedAt: isoDateSchema,
+  fulfillmentStatus: fulfillmentStatusSchema, paymentStatus: paymentStatusSchema, paymentMethod: z.literal("pay_at_store"), paidAt: isoDateSchema.nullable(),
+  customerName: z.string().min(1), customerEmail: z.string().email(), customerPhone: z.string().min(1), customerNotes: z.string().nullable(), currency: z.literal("CAD"),
+  subtotalCents: z.number().int().nonnegative(), taxCents: z.number().int().nonnegative(), feeCents: z.number().int().nonnegative(), totalCents: z.number().int().nonnegative(),
+  taxBreakdown: taxBreakdownSchema, pickupAddress: addressSchema, pickupEstimateText: z.string().nullable(), catalogRevision: z.number().int().positive(),
+  lines: z.array(orderLineSchema).min(1), cartSnapshot: cartSnapshotSchema, guestTokenHash: z.string().regex(/^[a-f0-9]{64}$/), guestAccessExpiresAt: isoDateSchema,
+}).strict().superRefine((order, context) => {
+  const lineSubtotal = order.lines.reduce((sum, line) => sum + line.lineTotalCents, 0);
+  if (lineSubtotal !== order.subtotalCents) context.addIssue({ code: "custom", message: "subtotal does not match line totals", path: ["subtotalCents"] });
+  if (order.totalCents !== order.subtotalCents + order.taxCents + order.feeCents) context.addIssue({ code: "custom", message: "total does not match subtotal, tax, and fees", path: ["totalCents"] });
+  if (order.updatedAt < order.createdAt) context.addIssue({ code: "custom", message: "updated time is before created time", path: ["updatedAt"] });
+  if (order.cartSnapshot.length !== order.lines.length) context.addIssue({ code: "custom", message: "cart snapshot does not match line count", path: ["cartSnapshot"] });
+  const cartByLine = new Map(order.cartSnapshot.map((line) => [line.lineId, line]));
+  if (new Set(order.lines.map((line) => line.lineId)).size !== order.lines.length || new Set(order.cartSnapshot.map((line) => line.lineId)).size !== order.cartSnapshot.length) context.addIssue({ code: "custom", message: "duplicate line IDs are not allowed", path: ["lines"] });
+  if (order.lines.some((line) => { const cartLine = cartByLine.get(line.lineId); return !cartLine || cartLine.itemId !== line.itemId || cartLine.quantity !== line.quantity; })) context.addIssue({ code: "custom", message: "cart snapshot does not match stored lines", path: ["cartSnapshot"] });
+});
+
+export function orderToRow(order: StoredOrder, metadata: OrderRowMetadata = { previousUpdatedAt: null, mutationId: null }): SheetValue[] {
   const itemSummary = order.lines.map((line) => `${line.quantity}× ${line.name}${line.selections.length ? ` (${line.selections.map((s) => s.optionName).join(", ")})` : ""}`).join("; ");
   return [order.schemaVersion, order.id, order.orderNumber, order.attemptId, order.createdAt, order.updatedAt, order.fulfillmentStatus,
     order.paymentStatus, order.paymentMethod, order.paidAt ?? "", order.customerName, order.customerEmail, order.customerPhone,
     order.customerNotes ?? "", order.currency, order.subtotalCents, order.taxCents, order.feeCents, order.totalCents,
     JSON.stringify(order.taxBreakdown), JSON.stringify(order.pickupAddress), order.pickupEstimateText ?? "", order.catalogRevision,
-    itemSummary, JSON.stringify(order.lines), JSON.stringify(order.cartSnapshot), order.guestTokenHash, order.guestAccessExpiresAt];
+    itemSummary, JSON.stringify(order.lines), JSON.stringify(order.cartSnapshot), order.guestTokenHash, order.guestAccessExpiresAt,
+    metadata.previousUpdatedAt ?? "", metadata.mutationId ?? ""];
 }
 
-function parseOrder(row: SheetValue[]): StoredOrder | null {
+function jsonValue(value: SheetValue | undefined) {
+  try { return JSON.parse(asString(value)) as unknown; } catch { return Symbol.for("invalid-json"); }
+}
+
+function parseOrderRow(row: SheetValue[], rowNumber: number): { parsed: ParsedOrderRow | null; issue: OrderDataIssue | null } {
+  if (!row.some((cell) => asString(cell).trim())) return { parsed: null, issue: null };
   const value = rowObject(ORDER_HEADERS, row);
-  const fulfillment = fulfillmentStatusSchema.safeParse(value.fulfillment_status);
-  const payment = paymentStatusSchema.safeParse(value.payment_status);
-  if (!asString(value.order_id) || !fulfillment.success || !payment.success) return null;
-  return {
-    schemaVersion: 1,
+  const candidate = {
+    schemaVersion: Number(value.schema_version),
     id: asString(value.order_id),
     orderNumber: asString(value.order_number),
     attemptId: asString(value.attempt_id),
     createdAt: asString(value.created_at),
     updatedAt: asString(value.updated_at),
-    fulfillmentStatus: fulfillment.data,
-    paymentStatus: payment.data,
-    paymentMethod: "pay_at_store",
+    fulfillmentStatus: asString(value.fulfillment_status),
+    paymentStatus: asString(value.payment_status),
+    paymentMethod: asString(value.payment_method),
     paidAt: nullable(value.paid_at),
     customerName: asString(value.customer_name),
     customerEmail: asString(value.customer_email),
     customerPhone: asString(value.customer_phone),
     customerNotes: nullable(value.customer_notes),
-    currency: "CAD",
-    subtotalCents: asNumber(value.subtotal_cents),
-    taxCents: asNumber(value.tax_cents),
-    feeCents: asNumber(value.fee_cents),
-    totalCents: asNumber(value.total_cents),
-    taxBreakdown: parseJson(value.tax_breakdown_json, []),
-    pickupAddress: parseJson(value.pickup_address_json, fallbackSettings.address),
+    currency: asString(value.currency),
+    subtotalCents: Number(value.subtotal_cents),
+    taxCents: Number(value.tax_cents),
+    feeCents: Number(value.fee_cents),
+    totalCents: Number(value.total_cents),
+    taxBreakdown: jsonValue(value.tax_breakdown_json),
+    pickupAddress: jsonValue(value.pickup_address_json),
     pickupEstimateText: nullable(value.pickup_estimate),
-    catalogRevision: asNumber(value.catalog_revision, 1),
-    lines: parseJson(value.lines_json, []),
-    cartSnapshot: parseJson(value.cart_snapshot_json, []),
+    catalogRevision: Number(value.catalog_revision),
+    lines: jsonValue(value.lines_json),
+    cartSnapshot: jsonValue(value.cart_snapshot_json),
     guestTokenHash: asString(value.guest_token_hash),
     guestAccessExpiresAt: asString(value.guest_access_expires_at),
   };
+  const result = parsedOrderSchema.safeParse(candidate);
+  const previousUpdatedAt = nullable(value.previous_updated_at);
+  const mutationId = nullable(value.mutation_id);
+  const metadata = z.object({ previousUpdatedAt: isoDateSchema.nullable(), mutationId: z.string().uuid().nullable() }).strict().superRefine((entry, context) => {
+    if (entry.previousUpdatedAt && !entry.mutationId) context.addIssue({ code: "custom", message: "version row is missing a mutation ID", path: ["mutationId"] });
+  }).safeParse({ previousUpdatedAt, mutationId });
+  const reasons = [
+    ...(result.success ? [] : result.error.issues.map((issue) => `${issue.path.join(".") || "row"}: ${issue.message}`)),
+    ...(metadata.success ? [] : metadata.error.issues.map((issue) => `${issue.path.join(".") || "metadata"}: ${issue.message}`)),
+  ];
+  if (!result.success || !metadata.success) return { parsed: null, issue: { rowNumber, orderId: nullable(value.order_id), orderNumber: nullable(value.order_number), reasons: [...new Set(reasons)].slice(0, 8) } };
+  return { parsed: { rowNumber, order: result.data, ...metadata.data }, issue: null };
+}
+
+function resolveOrderRows(rows: SheetValue[][]) {
+  const parsed: ParsedOrderRow[] = []; const issues: OrderDataIssue[] = [];
+  rows.forEach((row, index) => { const result = parseOrderRow(row, index + 2); if (result.parsed) parsed.push(result.parsed); if (result.issue) issues.push(result.issue); });
+  const groups = new Map<string, ParsedOrderRow[]>();
+  for (const entry of parsed) groups.set(entry.order.id, [...(groups.get(entry.order.id) ?? []), entry]);
+  const canonical = new Map<string, ParsedOrderRow>(); let conflictCount = 0;
+  for (const [id, versions] of groups) {
+    const legacy = versions.filter((entry) => !entry.mutationId && !entry.previousUpdatedAt).sort((a, b) => b.order.updatedAt.localeCompare(a.order.updatedAt) || a.rowNumber - b.rowNumber);
+    const roots = versions.filter((entry) => entry.mutationId && !entry.previousUpdatedAt).sort((a, b) => a.rowNumber - b.rowNumber);
+    let current = legacy[0] ?? roots[0];
+    if (!current) continue;
+    conflictCount += legacy.length ? Math.max(0, legacy.length - 1) + roots.length : Math.max(0, roots.length - 1);
+    const visited = new Set<number>([current.rowNumber]);
+    while (true) {
+      const children = versions.filter((entry) => entry.previousUpdatedAt === current.order.updatedAt && entry.mutationId && !visited.has(entry.rowNumber)).sort((a, b) => a.rowNumber - b.rowNumber);
+      if (!children.length) break;
+      conflictCount += Math.max(0, children.length - 1);
+      current = children[0]; visited.add(current.rowNumber);
+    }
+    canonical.set(id, current);
+  }
+  const orders = [...canonical.values()].map((entry) => entry.order).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return { orders, issues, conflictCount, canonical };
+}
+
+export function inspectOrderRows(rows: SheetValue[][]) {
+  const { orders, issues, conflictCount } = resolveOrderRows(rows);
+  return { orders, issues, conflictCount };
 }
 
 let settingsCache: { value: RestaurantSettings; expires: number } | null = null;
@@ -338,13 +415,13 @@ export async function approveSeedMenu(now = new Date().toISOString()) {
 }
 
 export async function listOrders(): Promise<StoredOrder[]> {
-  const orders = usingSheetsTestMode() ? memoryStore().orders : (await getValues("Orders!A2:AB")).map(parseOrder).filter((entry): entry is StoredOrder => Boolean(entry));
-  const deduped = new Map<string, StoredOrder>();
-  for (const order of orders) {
-    const prior = deduped.get(order.id);
-    if (!prior || order.updatedAt > prior.updatedAt) deduped.set(order.id, order);
-  }
-  return [...deduped.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return (await listOrdersWithDiagnostics()).orders;
+}
+
+export async function listOrdersWithDiagnostics(): Promise<{ orders: StoredOrder[]; issues: OrderDataIssue[]; conflictCount: number }> {
+  if (usingSheetsTestMode()) return { orders: [...memoryStore().orders].sort((a, b) => b.createdAt.localeCompare(a.createdAt)), issues: [], conflictCount: 0 };
+  const { orders, issues, conflictCount } = resolveOrderRows(await getValues("Orders!A2:AD"));
+  return { orders, issues, conflictCount };
 }
 
 export async function findOrderByAttempt(attemptId: string) { return (await listOrders()).find((order) => order.attemptId === attemptId) ?? null; }
@@ -353,10 +430,14 @@ export async function findOrderById(id: string) { return (await listOrders()).fi
 export async function appendOrder(order: StoredOrder) {
   if (usingSheetsTestMode()) {
     const store = memoryStore();
-    if (!store.orders.some((entry) => entry.id === order.id)) store.orders.push(structuredClone(order));
-    return;
+    if (store.orders.some((entry) => entry.id === order.id || entry.attemptId === order.attemptId)) return false;
+    store.orders.push(structuredClone(order));
+    return true;
   }
-  await appendValues("Orders!A:AB", [orderToRow(order)]);
+  const mutationId = randomUUID();
+  await appendValues("Orders!A:AD", [orderToRow(order, { previousUpdatedAt: null, mutationId })]);
+  const resolved = resolveOrderRows(await getValues("Orders!A2:AD"));
+  return resolved.canonical.get(order.id)?.mutationId === mutationId;
 }
 
 export async function updateOrder(order: StoredOrder, expectedUpdatedAt: string) {
@@ -367,13 +448,14 @@ export async function updateOrder(order: StoredOrder, expectedUpdatedAt: string)
     memoryStore().orders[index] = structuredClone(order);
     return true;
   }
-  const rows = await getValues("Orders!A2:AB");
-  const matches = rows.map((row, index) => ({ row, index })).filter(({ row }) => asString(row[1]) === order.id);
-  if (!matches.length) throw new Error("Order was not found.");
-  const latest = matches.map(({ row }) => parseOrder(row)).filter((entry): entry is StoredOrder => Boolean(entry)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
-  if (!latest || latest.updatedAt !== expectedUpdatedAt) return false;
-  await Promise.all(matches.map(({ index }) => putValues(`Orders!A${index + 2}:AB${index + 2}`, [orderToRow(order)])));
-  return true;
+  const before = resolveOrderRows(await getValues("Orders!A2:AD"));
+  const current = before.canonical.get(order.id);
+  if (!current) throw new Error("Order was not found.");
+  if (current.order.updatedAt !== expectedUpdatedAt) return false;
+  const mutationId = randomUUID();
+  await appendValues("Orders!A:AD", [orderToRow(order, { previousUpdatedAt: expectedUpdatedAt, mutationId })]);
+  const after = resolveOrderRows(await getValues("Orders!A2:AD"));
+  return after.canonical.get(order.id)?.mutationId === mutationId;
 }
 
 function parseSubscription(row: SheetValue[]): PushSubscriptionRecord | null {
@@ -412,14 +494,19 @@ export async function consumeRateLimit(keyHash: string, bucket: string, limit: n
     memoryStore().attempts.set(key, next); return { success: next.count <= limit, remaining: Math.max(0, limit - next.count) };
   }
   if (!sheetsConfigured()) return { success: false, remaining: 0 };
-  const rows = await getValues("LoginAttempts!A2:E"); const now = Date.now();
-  const index = rows.findIndex((row) => asString(row[0]) === keyHash && asString(row[1]) === bucket);
-  const currentExpires = index >= 0 ? Date.parse(asString(rows[index][4])) : 0;
-  const count = index < 0 || currentExpires <= now ? 1 : asNumber(rows[index][3]) + 1;
-  const started = index < 0 || currentExpires <= now ? new Date(now).toISOString() : asString(rows[index][2]);
-  const expires = index < 0 || currentExpires <= now ? new Date(now + windowMs).toISOString() : asString(rows[index][4]);
-  const row: SheetValue[] = [keyHash, bucket, started, count, expires];
-  if (index >= 0) await putValues(`LoginAttempts!A${index + 2}:E${index + 2}`, [row]); else await appendValues("LoginAttempts!A:E", [row]);
+  const now = Date.now();
+  const windowStart = Math.floor(now / windowMs) * windowMs;
+  const started = new Date(windowStart).toISOString();
+  const expires = new Date(windowStart + windowMs).toISOString();
+  const mutationId = randomUUID();
+  await appendValues("LoginAttempts!A:F", [[keyHash, bucket, started, 1, expires, mutationId]]);
+  const rows = await getValues("LoginAttempts!A2:F");
+  const mutationVisible = rows.some((row) => asString(row[5]) === mutationId);
+  if (!mutationVisible) return { success: false, remaining: 0 };
+  const count = rows.reduce((sum, row) => {
+    if (asString(row[0]) !== keyHash || asString(row[1]) !== bucket || asString(row[2]) !== started || Date.parse(asString(row[4])) <= now) return sum;
+    return sum + Math.max(0, asNumber(row[3]));
+  }, 0);
   return { success: count <= limit, remaining: Math.max(0, limit - count) };
 }
 
@@ -431,11 +518,11 @@ export async function initializeSpreadsheet() {
   const missing = SHEET_NAMES.filter((name) => !existing.has(name));
   if (missing.length) await request(":batchUpdate", { method: "POST", body: JSON.stringify({ requests: missing.map((title) => ({ addSheet: { properties: { title, gridProperties: { frozenRowCount: 1 } } } })) }) });
   await Promise.all([
-    putValues("Orders!A1:AB1", [[...ORDER_HEADERS]]),
+    putValues("Orders!A1:AD1", [[...ORDER_HEADERS]]),
     putValues("Menu!A1:F1", [[...MENU_HEADERS]]),
     putValues("Settings!A1:Y1", [[...SETTINGS_HEADERS]]),
     putValues("PushSubscriptions!A1:I1", [[...PUSH_HEADERS]]),
-    putValues("LoginAttempts!A1:E1", [[...RATE_HEADERS]]),
+    putValues("LoginAttempts!A1:F1", [[...RATE_HEADERS]]),
   ]);
   const [menuRows, settingRows] = await Promise.all([getValues("Menu!A2:F"), getValues("Settings!A2:Y2")]);
   const now = new Date().toISOString();

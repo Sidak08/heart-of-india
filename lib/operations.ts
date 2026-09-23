@@ -87,6 +87,13 @@ export type StoredOrder = {
 
 export type OrderView = Omit<StoredOrder, "guestTokenHash" | "guestAccessExpiresAt" | "attemptId">;
 
+export type OrderDataIssue = {
+  rowNumber: number;
+  orderId: string | null;
+  orderNumber: string | null;
+  reasons: string[];
+};
+
 export function toOrderView(order: StoredOrder): OrderView {
   const safe: Partial<StoredOrder> = { ...order };
   delete safe.guestTokenHash; delete safe.guestAccessExpiresAt; delete safe.attemptId;
