@@ -17,8 +17,116 @@
   "menuApprovedAt": null,
   "operationsApprovedAt": null,
   "policiesApprovedAt": null,
-  "privacyPolicy": null,
-  "orderingPolicy": null,
-  "retentionDays": null,
+  "privacyPolicy": [
+    {
+      "heading": "Our privacy commitment",
+      "paragraphs": [
+        "Effective September 22, 2026. Heart of India uses personal information only for reasonable purposes connected with pickup orders, customer service, security, and legal obligations. This policy explains what we collect and how customers can contact us about their information."
+      ]
+    },
+    {
+      "heading": "Information we collect",
+      "paragraphs": [
+        "When you place a pickup order, we collect your name, email address, telephone number, selected dishes and options, optional order notes, order number, order status, and whether payment was recorded at the store.",
+        "The website may process limited technical information, such as an IP address and security identifiers, to protect the ordering and operator systems. Rate-limit records use a one-way hash rather than storing the raw identifier. We do not collect payment-card details, delivery addresses, advertising profiles, or customer account passwords."
+      ]
+    },
+    {
+      "heading": "How we use information",
+      "paragraphs": [
+        "We use customer information to validate and prepare an order, contact the customer about pickup or an order problem, provide the private order-status page, record payment made at the store, prevent misuse, and meet applicable legal or accounting requirements.",
+        "We do not sell personal information or use pickup-order information for unrelated advertising."
+      ]
+    },
+    {
+      "heading": "Service providers and disclosures",
+      "paragraphs": [
+        "We use service providers to host the website and store the private order spreadsheet. They may process information for us under their own security and privacy obligations. Information may be processed outside Ontario or Canada and may be subject to the laws of the place where it is processed.",
+        "We may disclose information when required by law, to respond to a lawful request, to protect customers or the restaurant, or as part of a business transfer subject to appropriate protections."
+      ]
+    },
+    {
+      "heading": "Cookies and local storage",
+      "paragraphs": [
+        "The site stores the non-sensitive shopping cart in browser storage. After an order is placed, a private high-entropy order link and a secure order-scoped cookie permit access to that order's status. Anyone with the complete private link can view the order, so customers should keep it private. Staff authentication uses a secure operator-session cookie. We do not use third-party advertising cookies."
+      ]
+    },
+    {
+      "heading": "Retention and safeguards",
+      "paragraphs": [
+        "Order records are normally retained for up to 365 days, then deleted or de-identified unless a longer period is reasonably required for law, accounting, safety, a dispute, or an active access request. Security measures include restricted spreadsheet access, server-only credentials, scoped customer access, authenticated operator access, and encrypted HTTPS connections in production.",
+        "No system can guarantee absolute security. If we learn of a privacy incident, we will investigate and take the notification and reporting steps required by applicable law."
+      ]
+    },
+    {
+      "heading": "Access, correction, and questions",
+      "paragraphs": [
+        "You may ask whether we hold personal information about you and request access, correction, or deletion where applicable. We may need to verify your identity and may retain information that we are legally required or reasonably permitted to keep.",
+        "Contact Heart of India at heartofindia.brampton@gmail.com or 905-500-5382 with a privacy question or complaint. We will review the request and respond within the time required by applicable law."
+      ]
+    },
+    {
+      "heading": "Policy changes",
+      "paragraphs": [
+        "We may update this policy when our ordering practices or legal obligations change. The current version will be posted on this page with a revised effective date."
+      ]
+    }
+  ],
+  "orderingPolicy": [
+    {
+      "heading": "Pickup orders",
+      "paragraphs": [
+        "Online orders are for pickup only at Heart of India, 89 Clarence St., Brampton, Ontario L6W 1S5. We do not offer delivery through this website. Customers must provide accurate contact information so the restaurant can resolve questions about an order."
+      ]
+    },
+    {
+      "heading": "Order receipt and availability",
+      "paragraphs": [
+        "An order number confirms that the request was recorded; it does not mean the kitchen has accepted the order or guarantee a preparation time. The private status page shows whether the order is new, being prepared, ready for pickup, completed, or cancelled.",
+        "Items remain subject to availability. If an item cannot be prepared, the restaurant may contact the customer to agree on a change or cancel the affected item or order."
+      ]
+    },
+    {
+      "heading": "Prices, tax, and payment",
+      "paragraphs": [
+        "Prices are shown in Canadian dollars. The checkout displays the item subtotal, applicable HST, any disclosed fee, and the total before the order is placed. Current server-side menu prices control the final quote; if a price changes, the customer must review the updated total before placing the order.",
+        "No online payment is collected. The full amount is due at the restaurant when the order is picked up."
+      ]
+    },
+    {
+      "heading": "Changes and cancellations",
+      "paragraphs": [
+        "Call 905-500-5382 as soon as possible to request a change or cancellation. A request is not confirmed until restaurant staff agree to it. Changes or cancellations may not be possible after preparation has started.",
+        "If the restaurant cancels an unpaid order, no payment is due. This policy does not limit any right or remedy available under applicable consumer-protection law."
+      ]
+    },
+    {
+      "heading": "Pickup timing and collection",
+      "paragraphs": [
+        "Preparation times are estimates and can change with order size, kitchen volume, or circumstances outside the restaurant's control. Customers should use the order-status page and wait for Ready for pickup before travelling when possible.",
+        "Bring the order number and be prepared to confirm the name or telephone number on the order. Prepared food is perishable; contact the restaurant promptly if pickup will be delayed."
+      ]
+    },
+    {
+      "heading": "Allergies and special instructions",
+      "paragraphs": [
+        "The online menu does not currently provide verified allergen declarations. Customers with an allergy or other medically important dietary requirement must call the restaurant before ordering and should not rely only on the optional notes field. A note is a request and is not accepted unless the restaurant confirms it."
+      ]
+    },
+    {
+      "heading": "Order problems and refunds",
+      "paragraphs": [
+        "Inspect the order at pickup when practical and contact the restaurant promptly about a missing, incorrect, or unacceptable item. Because payment is made at the store, eligible corrections or refunds are handled directly by restaurant staff using the original order and payment information.",
+        "Any remedy will depend on the circumstances and applicable law. Nothing in this policy removes statutory consumer rights."
+      ]
+    },
+    {
+      "heading": "Contact",
+      "paragraphs": [
+        "For an order question, cancellation request, or policy concern, call Heart of India at 905-500-5382 or email heartofindia.brampton@gmail.com."
+      ]
+    }
+  ],
+  "retentionDays": 365,
   "catalogRevision": 1
 }

@@ -22,7 +22,7 @@ export const metadata: Metadata = {
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const settings = await getPublicSettings();
   return (
-    <html lang="en-CA">
+    <html lang="en-CA" data-scroll-behavior="smooth">
       <body className={`${display.variable} ${body.variable}`}>{settings.operationsApprovedAt && <script type="application/ld+json">{JSON.stringify({ "@context": "https://schema.org", "@type": "Restaurant", name: settings.name, telephone: settings.phone, address: { "@type": "PostalAddress", streetAddress: settings.address.street, addressLocality: settings.address.city, addressRegion: settings.address.province, postalCode: settings.address.postalCode, addressCountry: settings.address.country }, currenciesAccepted: settings.currency })}</script>}<CartProvider><SiteHeader name={settings.name} tagline={settings.tagline} phone={settings.phone} />{children}<SiteFooter name={settings.name} tagline={settings.tagline} phone={settings.phone} address={settings.address} publicEmail={settings.publicEmail} /><CartDrawer /><MobileCartBar /><WebMcpTools /></CartProvider></body>
     </html>
   );

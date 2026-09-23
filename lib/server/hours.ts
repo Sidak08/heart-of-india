@@ -1,6 +1,6 @@
 import "server-only";
 import { DateTime } from "luxon";
-import type { DateOverride, WeeklyHours } from "@/db/schema";
+import type { DateOverride, WeeklyHours } from "@/lib/operations";
 
 const DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 

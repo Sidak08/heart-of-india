@@ -1,0 +1,17 @@
+import { Bell, CheckCircle2, ClipboardList, ExternalLink, Settings, ShieldCheck, UtensilsCrossed } from "lucide-react";
+import type { Metadata } from "next";
+import Link from "next/link";
+import { requireOperator } from "@/lib/server/operator";
+import { pushConfigured } from "@/lib/server/push";
+import { listOperatorOrders } from "@/lib/server/orders";
+import { readSettings } from "@/lib/server/sheets";
+
+export const dynamic = "force-dynamic";
+export const metadata: Metadata = { title: "Operator dashboard", robots: { index: false, follow: false } };
+
+export default async function OperatorPage() {
+  await requireOperator(); const [orders, settings] = await Promise.all([listOperatorOrders(), readSettings()]);
+  const active = orders.filter((order) => !["completed", "cancelled"].includes(order.fulfillmentStatus)).length;
+  const setup = [settings.menuApprovedAt, settings.operationsApprovedAt, settings.policiesApprovedAt].filter(Boolean).length;
+  return <main className="container operator-page operator-overview"><div className="operator-head"><div><span className="eyebrow">Restaurant operations</span><h1 className="section-title">Operator dashboard</h1><p>Orders, menu management, restaurant settings, notifications, and public pages are collected here.</p></div></div><section className="operator-hub-grid" aria-label="Operator tools"><Link className="operator-hub-card" href="/operator/orders"><ClipboardList aria-hidden="true" /><div><span className="operator-card-kicker">{active} active</span><h2>Pickup orders</h2><p>Review customer details, update kitchen progress, and record pay-at-store payments.</p><strong>Open pickup orders</strong></div></Link><Link className="operator-hub-card" href="/operator/menu"><UtensilsCrossed aria-hidden="true" /><div><span className="operator-card-kicker">Customer catalogue</span><h2>Menu management</h2><p>Edit dish names, categories, prices, and ordering availability.</p><strong>Edit menu items</strong></div></Link><Link className="operator-hub-card" href="/operator/settings"><Settings aria-hidden="true" /><div><span className="operator-card-kicker">{setup} of 3 approvals</span><h2>Ordering settings</h2><p>Manage hours, preparation estimates, policies, approvals, and ordering availability.</p><strong>Open settings</strong></div></Link><Link className="operator-hub-card" href="/operator/notifications"><Bell aria-hidden="true" /><div><span className="operator-card-kicker">{pushConfigured() ? "Configured" : "Setup required"}</span><h2>Notifications</h2><p>Enable browser alerts on each staff device and send a test notification.</p><strong>Manage notifications</strong></div></Link><div className="operator-hub-card operator-readiness"><ShieldCheck aria-hidden="true" /><div><span className="operator-card-kicker">{settings.orderingEnabled ? "Accepting orders" : "Ordering paused"}</span><h2>Launch readiness</h2><ul><li className={settings.menuApprovedAt ? "ready" : ""}><CheckCircle2 /> Menu and prices</li><li className={settings.operationsApprovedAt ? "ready" : ""}><CheckCircle2 /> Hours and operations</li><li className={settings.policiesApprovedAt ? "ready" : ""}><CheckCircle2 /> Customer policies</li></ul></div></div></section><section className="operator-public-links"><h2>Public pages</h2><div><Link href="/menu">Menu <ExternalLink size={15} /></Link><Link href="/privacy">Privacy policy <ExternalLink size={15} /></Link><Link href="/ordering-policy">Ordering & pickup policy <ExternalLink size={15} /></Link></div></section></main>;
+}

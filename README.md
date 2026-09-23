@@ -1,170 +1,140 @@
-# Heart of India online ordering
+# Heart of India pickup ordering
 
-A production-oriented pickup ordering site for Heart of India in Brampton, Ontario. It uses Next.js App Router, TypeScript, Tailwind CSS, PostgreSQL/Drizzle, Stripe-hosted Checkout, Resend, Auth.js, and Upstash rate limiting, and is configured for Vercel in `yul1`.
+A responsive Next.js App Router website for Heart of India in Brampton, Ontario. Customers build a pickup order, enter their contact information, receive an order number, and pay at the restaurant. The owner manages orders from a protected dashboard and can enable free browser push notifications.
 
-The site intentionally launches in **browse-and-cart preview mode**. Live checkout stays disabled until the owner approves the menu, opening hours, cutoff, preparation estimate, tax treatment, and policies and all production services are configured.
+The storefront uses the supplied logo and the checked-in 80-item menu. Google Sheets is the only persistent service: it stores the authoritative menu overrides, restaurant settings, customer orders, fulfillment/payment status, push subscriptions, and login throttling records.
 
-## What is implemented
+## Features
 
-- Responsive Home, Menu, About, Cart, Checkout, confirmation, privacy, and ordering/refund pages
-- One data-driven catalogue for all 80 supplied menu entries and eight categories
-- Required radio choices for Saag and both curry combos
-- Versioned, non-sensitive local cart persistence with an in-memory fallback
-- Server-authoritative Zod validation, catalogue lookup, integer-cent totals, per-item tax profiles, availability, quantity limits, and signed five-minute quotes
-- Pickup-hours enforcement in `America/Toronto`, including date overrides, daylight-saving-aware time calculations, and a closing cutoff
-- A pending immutable order and line snapshot written to PostgreSQL before redirecting to Stripe Checkout
-- Raw-body Stripe signature verification, amount/currency checks, idempotent paid transitions, unique payment identity constraints, and duplicate/out-of-order event handling
-- Durable restaurant/customer email outbox with locks, exponential backoff, attempt history, provider IDs, and Resend idempotency keys
-- Auth.js operator access using Resend email links and optional Google OAuth, restricted to a server-only email allowlist
-- Paid-order recovery view and failed-notification retry action
-- Shared Upstash rate limits for quote, checkout, status, and operator-auth endpoints
-- CSP and security headers, guest order access via a 256-bit HTTP-only token, metadata, sitemap, robots, manifest, and structured data after operational approval
-- Read-only WebMCP menu tools plus local-cart add; no tool can create a payment
+- Responsive Home, Menu, About, Cart, Checkout, order-status, privacy, and ordering-policy pages
+- Searchable eight-category menu with required Saag and combo choices
+- Persistent local cart containing only menu selections and quantities
+- Server-authoritative catalogue lookup, input validation, quantities, hours, availability, integer-cent totals, and 13% HST
+- Pay-at-store pickup orders with protected live customer status
+- Operator workflow: New, Preparing, Ready for pickup, Completed, and Cancelled
+- Separate Unpaid/Paid at store tracking
+- Private email/password operator login with a one-way scrypt hash and signed HttpOnly session cookie
+- Live dashboard polling, audible alerts, and optional Web Push on each enrolled operator device
+- Private Google Sheet that remains readable and editable by the owner
+- No online card processing, customer accounts, transactional email provider, database server, Redis, or cron worker
 
 ## Local setup
 
-1. Install Node.js 22 or newer and run:
+1. Install dependencies:
 
    ```bash
    npm install
-   cp .env.example .env.local
    ```
 
-2. Start PostgreSQL locally or create a managed database. The included Compose file uses PostgreSQL 17:
+2. Create a Google Cloud project, enable the **Google Sheets API**, and create a service account with a JSON key.
+3. Create an empty private Google Sheet and share it with the service account's `client_email` as **Editor**. Do not publish the sheet or enable link-wide access because it contains customer contact information.
+4. Copy `.env.example` to `.env.local` and configure the values described below.
+5. Initialize the spreadsheet tabs and seed the menu/settings:
 
    ```bash
-   docker compose up -d
-   npm run db:migrate
-   npm run db:seed
+   npm run sheets:setup
    ```
 
-3. Start the app:
+6. Start the site:
 
    ```bash
    npm run dev
    ```
 
-Without credentials or PostgreSQL, the public site remains fully browsable and the cart remains usable. The quote endpoint uses the checked-in catalogue and returns an explicit checkout blocker. It does not simulate a database, payment, or email success.
+The public site remains browseable without Sheets credentials, but placing orders fails closed. A missing or invalid spreadsheet is never replaced by an in-memory production store.
 
 ## Environment variables
 
-Use [.env.example](./.env.example) as the source list. All integration values are server-only; no secret may use a `NEXT_PUBLIC_` prefix.
-
 | Variable | Purpose |
 | --- | --- |
-| `APP_URL` | Exact public origin, with HTTPS in production |
-| `DATABASE_URL` | Pooled PostgreSQL connection; use the Supabase pooler for Vercel functions |
-| `AUTH_SECRET` | At least 32 random bytes for Auth.js |
-| `OPERATOR_EMAILS` | Comma-separated, lowercased operator allowlist |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Optional second operator sign-in provider |
-| `RESEND_API_KEY`, `RESEND_FROM_EMAIL` | Verified-domain transactional sender |
-| `ORDER_NOTIFICATION_EMAIL` | Fixed restaurant order recipient; never accepted from the browser |
-| `PUBLIC_CONTACT_EMAIL` | Owner-supplied public contact value for configuration/reference |
-| `STRIPE_SECRET_KEY` | Test or live Stripe server key |
-| `STRIPE_WEBHOOK_SECRET` | Signing secret for the environment’s webhook endpoint |
-| `QUOTE_SIGNING_SECRET` | Separate random secret for short-lived price quotes |
-| `CRON_SECRET` | Vercel Cron bearer secret |
-| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Persistent, shared serverless rate limiting |
+| `APP_URL` | Canonical origin used for mutation origin checks |
+| `GOOGLE_SHEETS_ID` | ID between `/d/` and `/edit` in the spreadsheet URL |
+| `GOOGLE_SERVICE_ACCOUNT_EMAIL` | Service-account email that has Editor access to the private sheet |
+| `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` | Private key from the service-account JSON; use literal `\n` separators in Vercel |
+| `OPERATOR_EMAIL` | Single dashboard sign-in email |
+| `OPERATOR_PASSWORD_HASH` | Scrypt value produced by `npm run auth:hash` |
+| `OPERATOR_SESSION_SECRET` | Independent random secret of at least 32 characters |
+| `ORDER_ACCESS_SECRET` | Independent random secret used for private customer order access |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | Web Push keys produced by `npm run vapid:generate` |
+| `VAPID_SUBJECT` | Contact URI such as `mailto:owner@example.com` |
+| `PUBLIC_CONTACT_EMAIL` | Optional public restaurant contact address |
 
-Generate independent secrets for preview and production. Keep Stripe test and live keys, webhooks, databases, Resend configuration, and Upstash instances separated by environment.
-
-## Database and catalogue
-
-Drizzle schema lives in [`db/schema.ts`](./db/schema.ts), generated migrations in [`drizzle/`](./drizzle/), and the idempotent initial seed in [`scripts/seed.ts`](./scripts/seed.ts).
+Generate the two application secrets independently, for example with `openssl rand -base64 32`. Generate the operator hash locally:
 
 ```bash
-npm run db:generate   # after an intentional schema change
-npm run db:migrate
-npm run db:seed
+npm run auth:hash
 ```
 
-The seed updates transcribed public fields while preserving existing availability and tax assignments. After a price/catalogue change, increment `restaurant_settings.catalog_revision`; a cart with an older signed quote receives HTTP 409 and must show the new quote for acknowledgement.
+The reusable password is not stored in source, the spreadsheet, or browser storage.
 
-Tax is deliberately unseeded. Create owner-approved `tax_profiles` records with integer basis points, Stripe Tax Rate IDs, and the correct inclusive/exclusive flag, then assign every orderable item’s `tax_profile_id`. A 13% rate is stored as `1300`; do not add it until the owner/accountant confirms the treatment. The live-order gate rejects missing assignments.
+## Spreadsheet layout
 
-Menu availability supports `requires_owner_confirmation`, `available`, and `unavailable`. The operator settings form can approve the initially transcribed catalogue in bulk; individual later changes should update `menu_items.availability`, bump the catalogue revision, and be reviewed before enabling ordering.
+`npm run sheets:setup` creates five tabs and freezes their header rows:
 
-Business name, tagline, phone, address, public email, weekly hours JSON, cutoff, preparation range, retention period, policies, approvals, and the ordering-enabled switch are editable in `/operator/settings`. The checked-in preview defaults remain in [`data/restaurant-config.json`](./data/restaurant-config.json).
+- **Orders** — one complete immutable order snapshot per row, plus current fulfillment/payment state and readable item summary.
+- **Menu** — seeded item IDs plus the customer-facing name, category, price, and availability. IDs must remain unchanged. Edits made through Operator Settings advance `catalog_revision` automatically.
+- **Settings** — one restaurant configuration row, including business details, hours, policies, approvals, and the ordering switch.
+- **PushSubscriptions** — enrolled operator devices and last push result. Treat endpoints and keys as private operational data.
+- **LoginAttempts** — hashed client identifiers used to throttle operator sign-in attempts.
 
-## Stripe test and live setup
+The setup command is safe to run again: it repairs headers and fills Menu/Settings only when their data rows are empty. It does not erase orders.
 
-1. Use a Stripe **test-mode** secret key.
-2. Forward local events with the Stripe CLI:
+## Owner workflow
 
-   ```bash
-   stripe listen --forward-to localhost:3000/api/stripe/webhook
-   ```
+1. Visit `/operator/login` and sign in with `OPERATOR_EMAIL` and the password used to generate the hash.
+2. Open **Edit Menu** to review names, categories, prices, and availability. Open **Settings** to confirm restaurant details, hours, preparation times, policies, approvals, and the ordering switch.
+3. Return to **Pickup orders**. New orders appear within five seconds and can also trigger a push alert.
+4. Move each order through New → Preparing → Ready for pickup → Completed, or Cancelled. Mark payment received separately when the customer pays at the store.
+5. Open **Notifications**, enable each operator device, and send a test alert. Browser permission and HTTPS are required. On iPhone/iPad, install the site to the Home Screen before enabling push.
 
-3. Put the CLI-provided signing secret in `STRIPE_WEBHOOK_SECRET`.
-4. Exercise successful card payment, decline, browser Back/cancel, session expiry, duplicate webhook delivery, and closing the browser immediately after payment. The confirmation page polls the authorised backend; it never infers payment from the success URL.
-5. For production, register `https://YOUR_DOMAIN/api/stripe/webhook` and subscribe to:
-
-   - `checkout.session.completed`
-   - `checkout.session.expired`
-   - `checkout.session.async_payment_succeeded`
-   - `checkout.session.async_payment_failed`
-
-Only immediate card payment is enabled initially. Do not add delayed payment methods until their operational handling is reviewed. Replace test keys with live keys only after the owner launch checklist is complete.
-
-## Resend and durable notifications
-
-Verify a sender domain in Resend, set `RESEND_FROM_EMAIL` to an address on that domain, and set the restaurant recipient only in `ORDER_NOTIFICATION_EMAIL`.
-
-**Cron is temporarily disabled:** the endpoint returns 503 and the schedule is removed from `vercel.json` (JSON does not support comments). Immediate webhook delivery and operator retries remain available. To restore cron, uncomment the handler and `CRON_SECRET` configuration and add the following property back to `vercel.json`:
-
-```json
-"crons": [{ "path": "/api/cron/notifications", "schedule": "* * * * *" }]
-```
-
-The verified Stripe webhook inserts both notification jobs in the same transaction as the paid transition. It then awaits a small immediate delivery batch. Vercel Cron calls `/api/cron/notifications` every minute and authenticates with `CRON_SECRET`. Failed jobs back off up to one hour, stale locks recover after ten minutes, and terminal failures remain in PostgreSQL. The operator order view shows delivery status and retries failed/terminal jobs. External email delivery is idempotent where Resend supports it, but the system does not promise exactly-once delivery.
-
-Monitor:
-
-- Stripe webhook delivery failures and retries
-- Vercel function/cron errors
-- `notification_outbox` rows in `failed` or `terminal` state
-- the authenticated `/operator/orders` recovery view
-
-An email outage never rolls back a paid order. A database failure returns a non-2xx webhook response so Stripe can retry.
-
-## Operator authentication
-
-The primary flow is a Resend email magic link; Google OAuth is an optional backup. Auth.js stores database sessions and verification tokens in PostgreSQL. Every protected page and retry/settings mutation calls the server-side allowlist check. Configure at least one provider and ensure its callback URL is registered for each environment.
+The Google Sheet is the fallback operational view if browser push is unavailable. Push failure never removes an order.
 
 ## Vercel deployment
 
-1. Import the repository into Vercel and select the Next.js framework preset.
-2. Use a Pro plan if retaining the approved every-minute Cron schedule in [`vercel.json`](./vercel.json). The preferred function region is Montreal (`yul1`).
-3. Attach a Supabase PostgreSQL project created in Canada Central through Vercel Marketplace, or provide another managed PostgreSQL URL.
-4. Add every production environment variable listed above. Add separate preview values.
-5. Run migrations and the seed against each environment before accepting traffic.
-6. Deploy, register the final Stripe webhook, configure Auth.js OAuth callbacks, and verify the Resend sender domain.
-7. Sign into `/operator/settings`, complete the owner review, assign tax profiles, and enable ordering only after every readiness condition passes.
+1. Push the repository and create a Vercel project.
+2. Add all production environment variables. Paste the Google private key with escaped `\n` line breaks.
+3. Share the production spreadsheet with the production service-account email.
+4. Run `npm run sheets:setup` locally with the production Sheets variables or through a trusted administrative environment.
+5. Deploy, sign in to `/operator/settings`, finish owner review, and enable ordering.
+6. Enroll and test every device that should receive order alerts.
 
-Vercel, Supabase, Upstash, Stripe, Resend, and an email/domain provider are separate services with their own plan or usage costs. Stripe also charges payment-processing fees. The every-minute durable worker is the main reason this project assumes Vercel Pro. Review current provider pricing before launch.
+No OAuth callback, payment webhook, email domain, Redis instance, PostgreSQL server, or scheduled function is required. Google Sheets and browser push services enforce their own quotas. Vercel and Google may change free-tier limits independently.
 
-## Privacy, retention, and deletion
+## Security and privacy
 
-The application stores customer name, email, phone, optional notes, an immutable receipt, and non-sensitive payment references. Card data goes directly to Stripe. Local browser storage contains menu item IDs, choices, quantities, and display prices only; checkout contact fields are not stored there.
+- The spreadsheet and Google credentials stay server-only. Never make the order sheet public.
+- Operator sessions are signed, eight-hour, HttpOnly, Secure in production, and SameSite cookies. Every operator API checks the session.
+- Customer order details require a high-entropy, order-scoped private link token or its corresponding HttpOnly cookie. The human-readable order number is not authorization.
+- Mutation endpoints validate the request origin and all input with Zod.
+- Customer name, email, phone, notes, and receipt are personal information. Configure a retention period and periodically remove expired records according to the approved privacy policy.
+- Push lock-screen text contains only the order number, not customer information.
 
-Set an owner-approved `retention_days`. Until an automated retention job is added, the operator must run a documented database procedure to anonymise expired customer fields while retaining legally required accounting totals and payment references, and handle verified access/deletion requests through the confirmed public contact email. This is a launch decision recorded in [`docs/owner-review.md`](./docs/owner-review.md), not a claim that a policy has already been approved.
+Google Sheets does not offer database transactions or uniqueness constraints. The application uses deterministic order identity, checkout-attempt reuse, logical deduplication, and update timestamps, but it cannot provide the same concurrent-write guarantees as PostgreSQL. This tradeoff is suitable only for the expected low-volume, single-location workflow.
 
-## Verification
+## Updating the menu
+
+The source catalogue is [`heart-of-india-menu.json`](./heart-of-india-menu.json). `npm run sheets:setup` seeds all 80 items into the Menu tab. In **Operator → Edit Menu**, the owner can search and edit each existing item's customer-facing name, category, CAD price, and availability. The server uses those Sheet values as the trusted catalogue and advances `catalog_revision` after every dashboard edit. Valid availability values are:
+
+- `requires_owner_confirmation`
+- `available`
+- `unavailable`
+
+Do not change item or option IDs after launch. Required choices, new products, and product removal still require a deliberate JSON/code change and testing. Use `unavailable` when an existing item should temporarily stop accepting orders. If you edit the Sheet directly instead of using the dashboard, increment `catalog_revision` in Settings manually.
+
+## Validation
 
 ```bash
-npm run typecheck
 npm run lint
+npm run typecheck
 npm test
 npm run test:e2e
-npm run test:confirmation # requires DATABASE_URL and a running app
 npm run build
-node scripts/visual-qa.mjs
 ```
 
-The automated suite checks the 80-item seed, category counts, CAD formatting, required/invalid options, quantity/request limits, quote tampering, hours/cutoff logic, search, cart persistence, cart choice retention, the preview checkout gate, 320px overflow, dialog dismissal, and exact focus restoration. The 32 browser tests run in Chromium, Firefox, Playwright WebKit, and mobile Chromium. A separate pass used real macOS Safari’s accessibility tree for menu search, required Goat selection, add-to-cart feedback, focus restoration, and cart review. Visual QA covers the requested phone, tablet, short landscape, laptop, desktop, and wide-screen viewports and writes screenshots to `artifacts/screenshots`.
+The automated browser suite uses an explicitly test-only in-memory Sheets adapter. Production builds cannot activate that adapter. A real Google Sheets and Web Push smoke test requires the owner's external credentials and an HTTPS deployment.
 
-The suite was also exercised against local PostgreSQL, including public availability changes, unavailable-item rejection, duplicate and concurrent paid webhooks, one-time paid transitions, durable outbox creation, and rollback of a mismatched Stripe amount. Real Stripe Checkout, Resend delivery, Upstash, Auth.js providers, managed production PostgreSQL, Vercel Cron, and physical mobile browsers require the owner’s external credentials and production configuration. Do not report those external integrations as exercised until the relevant services are connected.
+## Remaining owner decisions
 
-## Owner decisions still required
+See [`docs/owner-review.md`](./docs/owner-review.md) for the facts and wording that still require confirmation before enabling ordering.
 
-See [`docs/owner-review.md`](./docs/owner-review.md). At minimum: public and notification emails, current hours, cutoff, pickup estimate, every item’s price/availability/tax treatment, any fee, final policies, retention duration, restaurant story/photos, operator addresses, and confirmation of the transcribed name, phone, address, and ambiguous Thali wording.
+For the complete production setup, credential, deployment, notification, and launch procedure, follow [`docs/go-live-setup-guide.md`](./docs/go-live-setup-guide.md).

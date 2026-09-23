@@ -1,23 +1,25 @@
 # Heart of India launch review
 
-The public name, phone, and address were transcribed from the supplied printed menu. Confirm these before launch:
+Confirm the restaurant details transcribed from the printed menu:
 
 - **Name:** Heart of India
 - **Tagline:** Authentic Indian Restaurant
 - **Phone:** 905-500-5382
 - **Address:** 89 Clarence St., Brampton, ON L6W 1S5, Canada
-- **Public contact email:** not supplied
-- **Order notification email:** not supplied
+- **Public contact email:** heartofindia.brampton@gmail.com
 
 ## Required operational decisions
 
-- Weekly opening hours and any holiday overrides
-- The online-order cutoff relative to closing time
+- Weekly opening hours and holiday overrides
+- Online-order cutoff before closing
 - Pickup preparation estimate
-- Whether each menu item is available and whether each transcribed price is current
-- Tax treatment for every item and any fee, including whether printed prices include tax
-- Ordering/refund policy, privacy policy, and personal-data retention period
-- The operator email allowlist and production notification recipients
+- Availability and current price of every menu item
+- Review and approve the drafted privacy and ordering/pickup policies
+- Confirm the proposed 365-day customer-order retention period
+- Operator email and production secrets
+- Devices that should receive Web Push notifications
+
+The approved implementation applies 13% HST to the complete order subtotal and collects payment at the store. The owner should confirm this treatment with their accountant before enabling live ordering.
 
 ## Source ambiguities retained internally
 
@@ -26,4 +28,4 @@ The public name, phone, and address were transcribed from the supplied printed m
 - Special Combos: pixelated promotional material was not reconstructed.
 - Spl. Chai & Pakora: the menu gives no pakora variety or portion, so the site exposes no invented option.
 
-The source status is `transcribed_from_supplied_menu_requires_owner_review`. Review notes are stored in the seed JSON and database but are intentionally omitted from customer screens.
+The source status is `transcribed_from_supplied_menu_requires_owner_review`. Review notes remain in the seed JSON and are omitted from customer screens.

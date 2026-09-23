@@ -1,50 +1,47 @@
 import "server-only";
 import { z } from "zod";
 
-const optionalUrl = z.string().url().optional().or(z.literal(""));
+const optional = <T extends z.ZodType>(schema: T) => z.preprocess((value) => value === "" ? undefined : value, schema.optional());
 const schema = z.object({
-  DATABASE_URL: optionalUrl,
-  APP_URL: optionalUrl,
-  AUTH_SECRET: z.string().min(32).optional(),
-  GOOGLE_CLIENT_ID: z.string().optional(),
-  GOOGLE_CLIENT_SECRET: z.string().optional(),
-  RESEND_API_KEY: z.string().optional(),
-  RESEND_FROM_EMAIL: z.string().optional(),
-  ORDER_NOTIFICATION_EMAIL: z.string().email().optional(),
-  PUBLIC_CONTACT_EMAIL: z.string().email().optional(),
-  OPERATOR_EMAILS: z.string().optional(),
-  STRIPE_SECRET_KEY: z.string().optional(),
-  STRIPE_WEBHOOK_SECRET: z.string().optional(),
-  QUOTE_SIGNING_SECRET: z.string().min(32).optional(),
-  // CRON_SECRET: z.string().min(16).optional(), // Temporarily disabled.
-  UPSTASH_REDIS_REST_URL: optionalUrl,
-  UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
-  PREVIEW_CART_ENABLED: z.enum(["true", "false"]).optional(),
-  VERCEL_ENV: z.enum(["development", "preview", "production"]).optional(),
+  APP_URL: optional(z.string().url()),
+  PUBLIC_CONTACT_EMAIL: optional(z.string().email()),
+  GOOGLE_SHEETS_ID: optional(z.string().min(10)),
+  GOOGLE_SERVICE_ACCOUNT_EMAIL: optional(z.string().email()),
+  GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: optional(z.string().min(40)),
+  OPERATOR_EMAIL: optional(z.string().email()),
+  OPERATOR_PASSWORD_HASH: optional(z.string().min(20)),
+  OPERATOR_SESSION_SECRET: optional(z.string().min(32)),
+  ORDER_ACCESS_SECRET: optional(z.string().min(32)),
+  VAPID_PUBLIC_KEY: optional(z.string()),
+  VAPID_PRIVATE_KEY: optional(z.string()),
+  VAPID_SUBJECT: optional(z.string()),
+  SHEETS_TEST_MODE: optional(z.enum(["true", "false"])),
+  VERCEL_ENV: optional(z.enum(["development", "preview", "production"])),
 });
 
 const parsed = schema.safeParse(process.env);
 
 export const env = parsed.success ? parsed.data : {};
 
-export function operatorEmails() {
-  return new Set((env.OPERATOR_EMAILS ?? "").split(",").map((email) => email.trim().toLowerCase()).filter(Boolean));
-}
-
-export function isOperatorEmail(email: string | null | undefined) {
-  if (!email) return false;
-  return operatorEmails().has(email.normalize("NFKC").toLowerCase());
+export function sheetsConfigured() {
+  return Boolean(env.GOOGLE_SHEETS_ID && env.GOOGLE_SERVICE_ACCOUNT_EMAIL && env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY);
 }
 
 export function runtimeReadiness() {
   const missing = [
-    ["DATABASE_URL", env.DATABASE_URL], ["APP_URL", env.APP_URL], ["AUTH_SECRET", env.AUTH_SECRET],
-    ["RESEND_API_KEY", env.RESEND_API_KEY], ["RESEND_FROM_EMAIL", env.RESEND_FROM_EMAIL],
-    ["ORDER_NOTIFICATION_EMAIL", env.ORDER_NOTIFICATION_EMAIL], ["STRIPE_SECRET_KEY", env.STRIPE_SECRET_KEY],
-    ["STRIPE_WEBHOOK_SECRET", env.STRIPE_WEBHOOK_SECRET], ["QUOTE_SIGNING_SECRET", env.QUOTE_SIGNING_SECRET],
-    // ["CRON_SECRET", env.CRON_SECRET], // Temporarily disabled.
-    ["UPSTASH_REDIS_REST_URL", env.UPSTASH_REDIS_REST_URL],
-    ["UPSTASH_REDIS_REST_TOKEN", env.UPSTASH_REDIS_REST_TOKEN], ["OPERATOR_EMAILS", env.OPERATOR_EMAILS],
+    ["GOOGLE_SHEETS_ID", env.GOOGLE_SHEETS_ID],
+    ["GOOGLE_SERVICE_ACCOUNT_EMAIL", env.GOOGLE_SERVICE_ACCOUNT_EMAIL],
+    ["GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY", env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY],
+    ["ORDER_ACCESS_SECRET", env.ORDER_ACCESS_SECRET],
+  ].filter(([, value]) => !value).map(([key]) => key);
+  return { ready: missing.length === 0, missing };
+}
+
+export function operatorAuthReadiness() {
+  const missing = [
+    ["OPERATOR_EMAIL", env.OPERATOR_EMAIL],
+    ["OPERATOR_PASSWORD_HASH", env.OPERATOR_PASSWORD_HASH],
+    ["OPERATOR_SESSION_SECRET", env.OPERATOR_SESSION_SECRET],
   ].filter(([, value]) => !value).map(([key]) => key);
   return { ready: missing.length === 0, missing };
 }

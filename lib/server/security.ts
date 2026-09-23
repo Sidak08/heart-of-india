@@ -1,23 +1,31 @@
 import "server-only";
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { Ratelimit } from "@upstash/ratelimit";
-import { Redis } from "@upstash/redis";
-import { env } from "@/lib/server/env";
 
-const redis = env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN
-  ? new Redis({ url: env.UPSTASH_REDIS_REST_URL, token: env.UPSTASH_REDIS_REST_TOKEN })
-  : null;
-const limiters = new Map<string, Ratelimit>();
+import { createHash, timingSafeEqual } from "node:crypto";
+import { env } from "@/lib/server/env";
+import { consumeRateLimit } from "@/lib/server/sheets";
+
+const globalLimits = globalThis as unknown as { hoiRateLimits?: Map<string, { count: number; expiresAt: number }> };
+const localLimits = globalLimits.hoiRateLimits ??= new Map();
+
+function windowToMs(window: string) {
+  const match = /^(\d+)\s*([smhd])$/.exec(window.trim());
+  if (!match) return 60_000;
+  const unit = { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 }[match[2] as "s" | "m" | "h" | "d"];
+  return Number(match[1]) * unit;
+}
 
 export async function rateLimit(request: Request, bucket: string, limit = 10, window = "1 m") {
-  if (!redis) return { success: true, remaining: limit, degraded: true };
-  let limiter = limiters.get(`${bucket}:${limit}:${window}`);
-  if (!limiter) {
-    limiter = new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(limit, window as `${number} ${"s" | "m" | "h" | "d"}`), prefix: `hoi:${bucket}` });
-    limiters.set(`${bucket}:${limit}:${window}`, limiter);
+  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "unknown";
+  const keyHash = createHash("sha256").update(`${bucket}:${forwarded}:${env.OPERATOR_SESSION_SECRET ?? env.ORDER_ACCESS_SECRET ?? "preview"}`).digest("hex");
+  const windowMs = windowToMs(window);
+  if (bucket === "operator-login" || bucket === "order-create") {
+    try { return { ...(await consumeRateLimit(keyHash, bucket, limit, windowMs)), degraded: false }; }
+    catch { if (bucket === "operator-login") return { success: false, remaining: 0, degraded: true }; }
   }
-  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  return { ...(await limiter.limit(forwarded || "unknown")), degraded: false };
+  const key = `${bucket}:${keyHash}`; const now = Date.now(); const current = localLimits.get(key);
+  const next = !current || current.expiresAt <= now ? { count: 1, expiresAt: now + windowMs } : { ...current, count: current.count + 1 };
+  localLimits.set(key, next);
+  return { success: next.count <= limit, remaining: Math.max(0, limit - next.count), degraded: true };
 }
 
 export function verifySameOrigin(request: Request) {
@@ -27,13 +35,6 @@ export function verifySameOrigin(request: Request) {
   try { return new URL(origin).origin === new URL(expected).origin; } catch { return false; }
 }
 
-export function jsonError(message: string, status: number, details?: unknown) {
-  return Response.json({ error: message, details }, { status, headers: { "Cache-Control": "no-store" } });
-}
-
-export function newGuestToken() { return randomBytes(32).toString("base64url"); }
+export function jsonError(message: string, status: number, details?: unknown) { return Response.json({ error: message, details }, { status, headers: { "Cache-Control": "no-store" } }); }
 export function hashToken(value: string) { return createHash("sha256").update(value).digest("hex"); }
-export function safeEqual(a: string, b: string) {
-  const left = Buffer.from(a); const right = Buffer.from(b);
-  return left.length === right.length && timingSafeEqual(left, right);
-}
+export function safeEqual(a: string, b: string) { const left = Buffer.from(a); const right = Buffer.from(b); return left.length === right.length && timingSafeEqual(left, right); }
