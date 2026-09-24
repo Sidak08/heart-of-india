@@ -99,12 +99,16 @@ export async function createQuote(input: z.infer<typeof quoteRequestSchema>): Pr
     if (item.availability !== "available") throw new Error(item.availability === "unavailable" ? `${item.name} is unavailable.` : `${item.name} is waiting for owner confirmation.`);
     const selections = validateOptions(item, line.selections);
     const unitPriceCents = item.priceCents + selections.reduce((sum, option) => sum + option.priceDeltaCents, 0);
-    return { ...line, name: item.name, selections, unitPriceCents, lineTotalCents: unitPriceCents * line.quantity };
+    const lineTotalCents = unitPriceCents * line.quantity;
+    const taxRateBasisPoints = item.taxClass === "zero_rated" ? 0 : settings.taxRateBasisPoints;
+    const taxCents = settings.taxInclusive && taxRateBasisPoints > 0 ? Math.round(lineTotalCents - lineTotalCents * 10_000 / (10_000 + taxRateBasisPoints)) : Math.round(lineTotalCents * taxRateBasisPoints / 10_000);
+    return { ...line, name: item.name, selections, unitPriceCents, lineTotalCents, taxClass: item.taxClass ?? "standard", taxRateBasisPoints, taxCents };
   });
   const subtotalCents = lines.reduce((sum, line) => sum + line.lineTotalCents, 0);
-  const taxCents = settings.taxInclusive ? 0 : Math.round(subtotalCents * settings.taxRateBasisPoints / 10_000);
-  const includedTax = settings.taxInclusive ? Math.round(subtotalCents - subtotalCents * 10_000 / (10_000 + settings.taxRateBasisPoints)) : taxCents;
-  const taxBreakdown = settings.taxRateBasisPoints > 0 ? [{ label: `${settings.taxLabel} (${(settings.taxRateBasisPoints / 100).toFixed(0)}%)`, amountCents: includedTax, inclusive: settings.taxInclusive }] : [];
+  const appliedTax = lines.reduce((sum, line) => sum + (line.taxCents ?? 0), 0);
+  const taxCents = settings.taxInclusive ? 0 : appliedTax;
+  const taxRateLabel = (settings.taxRateBasisPoints / 100).toFixed(2).replace(/\.00$/, "").replace(/(\.\d)0$/, "$1");
+  const taxBreakdown = settings.taxRateBasisPoints > 0 ? [{ label: `${settings.taxLabel} (${taxRateLabel}%)`, amountCents: appliedTax, inclusive: settings.taxInclusive }] : [];
   const hours = getOrderingWindow({ timezone: settings.timezone, weeklyHours: settings.weeklyHours, dateOverrides: settings.dateOverrides, cutoffMinutes: settings.cutoffMinutes });
   const readiness = runtimeReadiness();
   const blockers = [

@@ -3,7 +3,7 @@ import { jsonError, rateLimit, verifySameOrigin } from "@/lib/server/security";
 
 export async function POST(request: Request) {
   if (!verifySameOrigin(request)) return jsonError("Request origin was not accepted.", 403);
-  const limited = await rateLimit(request, "quote", 30, "1 m");
+  const limited = await rateLimit(request, "quote", 30, "1 m", { shared: false });
   if (!limited.success) return jsonError("Too many quote requests. Please wait a moment.", 429);
   let body: unknown;
   try { body = await request.json(); } catch { return jsonError("Invalid JSON request.", 400); }

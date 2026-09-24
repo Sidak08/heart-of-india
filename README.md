@@ -2,14 +2,14 @@
 
 A responsive Next.js App Router website for Heart of India in Brampton, Ontario. Customers build a pickup order, enter their contact information, receive an order number, and pay at the restaurant. The owner manages orders from a protected dashboard and can enable free browser push notifications.
 
-The storefront uses the supplied logo and the checked-in 80-item menu. Google Sheets is the only persistent service: it stores the authoritative menu overrides, restaurant settings, customer orders, fulfillment/payment status, push subscriptions, and login throttling records.
+The storefront uses the supplied logo and the checked-in 80-item menu. Google Sheets is the only persistent service: it stores the authoritative menu overrides, restaurant settings, customer orders, fulfillment/payment status, durable notification work, push subscriptions, retention evidence, and rate-limit records.
 
 ## Features
 
 - Responsive Home, Menu, About, Cart, Checkout, order-status, privacy, and ordering-policy pages
 - Searchable eight-category menu with required Saag and combo choices
 - Persistent local cart containing only menu selections and quantities
-- Server-authoritative catalogue lookup, input validation, quantities, hours, availability, integer-cent totals, and 13% HST
+- Server-authoritative catalogue lookup, input validation, quantities, hours, availability, integer-cent totals, configurable tax, and per-item tax classes
 - Pay-at-store pickup orders with protected live customer status
 - Operator workflow: New, Preparing, Ready for pickup, Completed, and Cancelled
 - Separate Unpaid/Paid at store tracking
@@ -69,25 +69,27 @@ The reusable password is not stored in source, the spreadsheet, or browser stora
 
 ## Spreadsheet layout
 
-`npm run sheets:setup` creates five tabs and freezes their header rows:
+`npm run sheets:setup` creates seven tabs and freezes their header rows:
 
 - **Orders** — append-only immutable order snapshots. The first row creates an order; later rows record status versions linked by `previous_updated_at`. Deterministic conflict resolution keeps one current version without overwriting history.
-- **Menu** — seeded item IDs plus the customer-facing name, category, price, and availability. IDs must remain unchanged. Edits made through Operator Settings advance `catalog_revision` automatically.
-- **Settings** — one restaurant configuration row, including business details, hours, policies, approvals, and the ordering switch.
+- **Menu** — seeded item IDs plus the customer-facing name, category, price, tax class, availability, and edit timestamp. IDs must remain unchanged. Edits made through Operator Settings advance `catalog_revision` automatically.
+- **Settings** — one restaurant configuration row, including business details, split/overnight hours, date overrides, tax, policies, approvals, and the ordering switch.
 - **PushSubscriptions** — enrolled operator devices and last push result. Treat endpoints and keys as private operational data.
-- **LoginAttempts** — append-only, hashed request events used to throttle operator sign-in and order creation without storing raw client addresses.
+- **LoginAttempts** — append-only, hashed request events used for shared rate limits on sensitive mutations without storing raw client addresses. High-frequency quote and private-status reads use lightweight process-local limits to avoid consuming the Sheets API quota they protect.
+- **NotificationOutbox** — durable new-order notification state, leases, retries, and terminal delivery results.
+- **DataMaintenance** — evidence entries for customer-data retention cleanup.
 
 The setup command is safe to run again: it repairs headers and fills Menu/Settings only when their data rows are empty. It does not erase orders. Rerun it after an application update that adds Sheet columns; older order rows remain readable.
 
 ## Owner workflow
 
 1. Visit `/operator/login` and sign in with `OPERATOR_EMAIL` and the password used to generate the hash.
-2. Open **Edit Menu** to review names, categories, prices, and availability. Open **Settings** to confirm restaurant details, hours, preparation times, policies, approvals, and the ordering switch.
+2. Open **Edit Menu** to review names, categories, prices, tax classes, and availability. Open **Settings** to confirm restaurant details, hours, preparation times, policies, approvals, and the ordering switch.
 3. Return to **Pickup orders**. New orders appear within five seconds and can also trigger a push alert.
 4. Move each order through New → Preparing → Ready for pickup → Completed, or Cancelled. Mark payment received separately when the customer pays at the store.
 5. Open **Notifications**, enable each operator device, and send a test alert. Browser permission and HTTPS are required. On iPhone/iPad, install the site to the Home Screen before enabling push.
 
-The Google Sheet is the fallback operational view if browser push is unavailable. Push failure never removes an order.
+The Google Sheet is the fallback operational view if browser push is unavailable. Failed pushes remain in the durable outbox, retry when the dashboard polls, and expose a manual retry action on the order.
 
 ## Vercel deployment
 
@@ -106,18 +108,20 @@ No OAuth callback, payment webhook, email domain, Redis instance, PostgreSQL ser
 - Operator sessions are signed, eight-hour, HttpOnly, Secure in production, and SameSite cookies. Every operator API checks the session.
 - Customer order details require a high-entropy, order-scoped private link token or its corresponding HttpOnly cookie. The human-readable order number is not authorization.
 - Mutation endpoints validate the request origin and all input with Zod.
-- Customer name, email, phone, notes, and receipt are personal information. Configure a retention period and periodically remove expired records according to the approved privacy policy.
+- Customer name, email, phone, notes, and receipt are personal information. Configure a retention period, then use **Operator → Data** to review and de-identify eligible completed or cancelled orders. The action removes customer contact data from every version row and writes evidence to DataMaintenance.
 - Push lock-screen text contains only the order number, not customer information.
 
-Google Sheets does not offer database transactions or uniqueness constraints. The application therefore appends every order mutation, uses a deterministic order identity, and selects one canonical create/status version by Sheet row order. Duplicate create attempts do not send a second notification, conflicting status versions are exposed in the authenticated dashboard, and rate-limit requests are recorded as append-only events. This is suitable for the expected low-volume, single-location workflow, but a relational database remains the appropriate upgrade for materially higher write concurrency.
+Google Sheets does not offer database transactions or uniqueness constraints. The application therefore appends every order mutation, uses a deterministic order identity, and selects one canonical create/status version by Sheet row order. Duplicate create attempts do not send a second notification, conflicting status versions are exposed in the authenticated dashboard, and sensitive-mutation rate limits are recorded as append-only events. Dashboard polling batch-reads its operational tabs to remain within normal Sheets quotas. This is suitable for the expected low-volume, single-location workflow, but a relational database remains the appropriate upgrade for materially higher write concurrency.
 
 ## Updating the menu
 
-The source catalogue is [`heart-of-india-menu.json`](./heart-of-india-menu.json). `npm run sheets:setup` seeds all 80 items into the Menu tab. In **Operator → Edit Menu**, the owner can search and edit each existing item's customer-facing name, category, CAD price, and availability. The server uses those Sheet values as the trusted catalogue and advances `catalog_revision` after every dashboard edit. Valid availability values are:
+The source catalogue is [`heart-of-india-menu.json`](./heart-of-india-menu.json). `npm run sheets:setup` seeds all 80 items into the Menu tab. In **Operator → Edit Menu**, the owner can search and edit each existing item's customer-facing name, category, CAD price, tax class, and availability. The server uses those Sheet values as the trusted catalogue and advances `catalog_revision` after every dashboard edit. Valid availability values are:
 
 - `requires_owner_confirmation`
 - `available`
 - `unavailable`
+
+Tax classes are `standard` and `zero_rated`. Confirm both the restaurant-wide tax rate and every exceptional item with the restaurant’s accountant.
 
 Do not change item or option IDs after launch. Required choices, new products, and product removal still require a deliberate JSON/code change and testing. Use `unavailable` when an existing item should temporarily stop accepting orders. If you edit the Sheet directly instead of using the dashboard, increment `catalog_revision` in Settings manually.
 

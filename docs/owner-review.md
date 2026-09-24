@@ -19,7 +19,7 @@ Confirm the restaurant details transcribed from the printed menu:
 - Operator email and production secrets
 - Devices that should receive Web Push notifications
 
-The approved implementation applies 13% HST to the complete order subtotal and collects payment at the store. The owner should confirm this treatment with their accountant before enabling live ordering.
+The implementation supports an owner-managed tax label and rate, inclusive or exclusive pricing, and standard or zero-rated classes per item. The owner must confirm all tax settings and item classes with their accountant before enabling live ordering. Payment is collected at the store.
 
 ## Source ambiguities retained internally
 

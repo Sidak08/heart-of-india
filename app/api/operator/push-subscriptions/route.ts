@@ -1,10 +1,17 @@
 import { z } from "zod";
 import { getOperator } from "@/lib/server/operator";
-import { disablePushSubscription, upsertPushSubscription } from "@/lib/server/sheets";
+import { disablePushSubscription, listPushSubscriptions, upsertPushSubscription } from "@/lib/server/sheets";
 import { jsonError, verifySameOrigin } from "@/lib/server/security";
 
 const schema = z.object({ deviceId: z.string().uuid(), endpoint: z.string().url().max(2000), keys: z.object({ p256dh: z.string().min(20).max(500), auth: z.string().min(8).max(200) }).strict() }).strict();
 const removeSchema = z.object({ deviceId: z.string().uuid() }).strict();
+
+export async function GET(request: Request) {
+  if (!await getOperator()) return jsonError("Sign in is required.", 401);
+  const parsed = removeSchema.safeParse({ deviceId: new URL(request.url).searchParams.get("deviceId") }); if (!parsed.success) return jsonError("The browser identifier is invalid.", 400);
+  try { return Response.json({ registered: (await listPushSubscriptions()).some((entry) => entry.deviceId === parsed.data.deviceId) }, { headers: { "Cache-Control": "no-store" } }); }
+  catch { return jsonError("Notification status could not be checked.", 503); }
+}
 
 export async function POST(request: Request) {
   if (!await getOperator()) return jsonError("Sign in is required.", 401);
@@ -24,4 +31,3 @@ export async function DELETE(request: Request) {
   try { await disablePushSubscription(parsed.data.deviceId); return Response.json({ ok: true }); }
   catch { return jsonError("Notifications could not be disabled.", 503); }
 }
-

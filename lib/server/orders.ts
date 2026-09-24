@@ -3,23 +3,27 @@ import "server-only";
 import { createHmac } from "node:crypto";
 import { z } from "zod";
 import type { FulfillmentStatus, PaymentStatus, StoredOrder } from "@/lib/operations";
-import { fulfillmentStatusSchema, paymentStatusSchema } from "@/lib/operations";
+import { allowedFulfillmentTransitions, fulfillmentStatusSchema, paymentStatusSchema } from "@/lib/operations";
 import { env } from "@/lib/server/env";
-import { sendNewOrderNotifications } from "@/lib/server/push";
+import { processOrderNotification, processPendingNotifications } from "@/lib/server/push";
 import { cartLineSchema, createQuote, verifyAcceptedQuoteToken } from "@/lib/server/quote";
-import { appendOrder, findOrderByAttempt, findOrderById, listOrders, listOrdersWithDiagnostics, updateOrder, usingSheetsTestMode } from "@/lib/server/sheets";
+import { appendOrder, ensureNotificationJob, findOrderByAttempt, findOrderById, listOrders, readOperationsSnapshot, updateOrder, usingSheetsTestMode } from "@/lib/server/sheets";
 import { hashToken, safeEqual } from "@/lib/server/security";
+import { isReasonablePhone } from "@/lib/validation";
+import { DateTime } from "luxon";
 
 export const createOrderRequestSchema = z.object({
   attemptId: z.string().uuid(),
-  customer: z.object({ name: z.string().trim().min(2).max(80), email: z.string().trim().email().max(254), phone: z.string().trim().min(7).max(30), notes: z.string().trim().max(500).default("") }).strict(),
+  customer: z.object({ name: z.string().trim().min(2).max(80), email: z.string().trim().email().max(254), phone: z.string().trim().max(30).refine(isReasonablePhone, "Enter a phone number with 10 to 15 digits."), notes: z.string().trim().max(500).default("") }).strict(),
   lines: z.array(cartLineSchema).min(1).max(30),
   acceptedQuoteToken: z.string().min(80).max(2048),
 }).strict();
 
 export const updateOrderRequestSchema = z.object({
-  fulfillmentStatus: fulfillmentStatusSchema.optional(), paymentStatus: paymentStatusSchema.optional(), expectedUpdatedAt: z.string().datetime(),
+  fulfillmentStatus: fulfillmentStatusSchema.optional(), paymentStatus: paymentStatusSchema.optional(), expectedUpdatedAt: z.string().datetime(), reason: z.string().trim().max(200).optional(),
 }).strict().refine((value) => value.fulfillmentStatus || value.paymentStatus, "Choose a status to update.");
+
+export class OrderTransitionError extends Error {}
 
 function secret() {
   if (env.ORDER_ACCESS_SECRET) return env.ORDER_ACCESS_SECRET;
@@ -30,11 +34,11 @@ function secret() {
 function digest(label: string, attemptId: string, encoding: "hex" | "base64url" = "hex") { return createHmac("sha256", secret()).update(`${label}:${attemptId}`).digest(encoding); }
 function uuidFromAttempt(attemptId: string) { const hex = digest("order", attemptId, "hex").slice(0, 32).split(""); hex[12] = "4"; hex[16] = ((parseInt(hex[16], 16) & 3) | 8).toString(16); const value = hex.join(""); return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`; }
 function guestToken(attemptId: string) { return digest("guest", attemptId, "base64url"); }
-function orderNumber(attemptId: string, createdAt: string) { const stamp = createdAt.slice(2, 10).replaceAll("-", ""); return `HOI-${stamp}-${digest("number", attemptId, "hex").slice(0, 6).toUpperCase()}`; }
+function orderNumber(attemptId: string, createdAt: string) { const stamp = DateTime.fromISO(createdAt, { zone: "utc" }).setZone("America/Toronto").toFormat("yyLLdd"); return `HOI-${stamp}-${digest("number", attemptId, "hex").slice(0, 6).toUpperCase()}`; }
 
 export async function createOrder(input: z.infer<typeof createOrderRequestSchema>) {
   const existing = await findOrderByAttempt(input.attemptId);
-  if (existing) return { changed: false as const, order: existing, guestToken: guestToken(input.attemptId), existing: true };
+  if (existing) { try { await ensureNotificationJob(existing); } catch { /* The operator dashboard repairs a missing outbox row. */ } return { changed: false as const, order: existing, guestToken: guestToken(input.attemptId), existing: true }; }
   const quote = await createQuote({ lines: input.lines });
   if (!verifyAcceptedQuoteToken(input.acceptedQuoteToken, quote)) return { changed: true as const, quote };
   if (!quote.orderable) throw new Error(quote.blockers[0] ?? "Online ordering is unavailable.");
@@ -47,16 +51,17 @@ export async function createOrder(input: z.infer<typeof createOrderRequestSchema
     taxCents: quote.taxCents, feeCents: quote.feeCents, totalCents: quote.totalCents, taxBreakdown: quote.taxBreakdown,
     pickupAddress: quote.pickupAddress, pickupEstimateText: quote.pickupEstimateText, catalogRevision: quote.catalogRevision,
     cartSnapshot: quote.lines.map(({ lineId, itemId, quantity }) => ({ lineId, itemId, quantity })), lines: quote.lines,
-    createdAt, updatedAt: createdAt, paidAt: null,
+    createdAt, updatedAt: createdAt, paidAt: null, statusHistory: [],
   };
   const committed = await appendOrder(order);
   if (!committed) {
     const winner = await findOrderByAttempt(input.attemptId);
     if (!winner) throw new Error("The order could not be confirmed. Please try again.");
+    try { await ensureNotificationJob(winner); } catch { /* The operator dashboard repairs a missing outbox row. */ }
     return { changed: false as const, order: winner, guestToken: token, existing: true };
   }
-  let notification = { configured: false, sent: 0, failed: 0 };
-  try { notification = await sendNewOrderNotifications(order); } catch { /* The dashboard and sheet remain the durable recovery path. */ }
+  let notification = null;
+  try { notification = await processOrderNotification(order); } catch { /* The durable outbox is retried when the operator dashboard polls. */ }
   return { changed: false as const, order, guestToken: token, existing: false, notification };
 }
 
@@ -66,17 +71,25 @@ export async function getGuestOrder(orderId: string, token: string) {
   return order;
 }
 
-export async function listOperatorOrders() { return (await listOrders()).slice(0, 500); }
+export async function listOperatorOrders() { return await listOrders(); }
 
 export async function getOperatorOrderSnapshot() {
-  const snapshot = await listOrdersWithDiagnostics();
-  return { ...snapshot, orders: snapshot.orders.slice(0, 500) };
+  const snapshot = await readOperationsSnapshot(); const known = new Set(snapshot.notificationJobs.map((job) => job.orderId));
+  const missing = snapshot.orders.filter((entry) => entry.fulfillmentStatus === "new" && Date.parse(entry.createdAt) > Date.now() - 86_400_000 && !known.has(entry.id));
+  for (const order of missing) await ensureNotificationJob(order);
+  const hasDueNotification = snapshot.notificationJobs.some((job) => job.state !== "sent" && Date.parse(job.nextAttemptAt) <= Date.now());
+  if (hasDueNotification) await processPendingNotifications(1, snapshot);
+  return missing.length || hasDueNotification ? await readOperationsSnapshot() : snapshot;
 }
 
-export async function setOrderStatus(id: string, values: { fulfillmentStatus?: FulfillmentStatus; paymentStatus?: PaymentStatus; expectedUpdatedAt: string }) {
+export async function setOrderStatus(id: string, values: { fulfillmentStatus?: FulfillmentStatus; paymentStatus?: PaymentStatus; expectedUpdatedAt: string; reason?: string }, actor = "operator") {
   const current = await findOrderById(id); if (!current) throw new Error("Order was not found.");
+  const fulfillmentStatus = values.fulfillmentStatus ?? current.fulfillmentStatus; const paymentStatus = values.paymentStatus ?? current.paymentStatus;
+  if (fulfillmentStatus !== current.fulfillmentStatus && !allowedFulfillmentTransitions[current.fulfillmentStatus].includes(fulfillmentStatus)) throw new OrderTransitionError(`An order cannot move from ${current.fulfillmentStatus.replaceAll("_", " ")} to ${fulfillmentStatus.replaceAll("_", " ")}.`);
+  if (current.paymentStatus === "paid_at_store" && paymentStatus !== current.paymentStatus) throw new OrderTransitionError("A recorded payment cannot be reversed from the dashboard.");
+  if (fulfillmentStatus === "cancelled" && !values.reason?.trim()) throw new OrderTransitionError("Enter a reason when cancelling an order.");
   const updatedAt = new Date(Math.max(Date.now(), Date.parse(current.updatedAt) + 1)).toISOString();
-  const next: StoredOrder = { ...current, fulfillmentStatus: values.fulfillmentStatus ?? current.fulfillmentStatus, paymentStatus: values.paymentStatus ?? current.paymentStatus, paidAt: values.paymentStatus === "paid_at_store" ? current.paidAt ?? updatedAt : values.paymentStatus === "unpaid" ? null : current.paidAt, updatedAt };
+  const next: StoredOrder = { ...current, fulfillmentStatus, paymentStatus, paidAt: paymentStatus === "paid_at_store" ? current.paidAt ?? updatedAt : current.paidAt, updatedAt, statusHistory: [...(current.statusHistory ?? []), { at: updatedAt, actor, fulfillmentFrom: current.fulfillmentStatus, fulfillmentTo: fulfillmentStatus, paymentFrom: current.paymentStatus, paymentTo: paymentStatus, reason: values.reason?.trim() || null }].slice(-100) };
   const updated = await updateOrder(next, values.expectedUpdatedAt);
   return updated ? next : null;
 }

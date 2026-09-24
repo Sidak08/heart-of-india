@@ -10,7 +10,7 @@ import type { OrderDataIssue, RestaurantSettings, StoredOrder } from "@/lib/oper
 import { fulfillmentStatusSchema, paymentStatusSchema } from "@/lib/operations";
 import { env, sheetsConfigured } from "@/lib/server/env";
 
-export const SHEET_NAMES = ["Orders", "Menu", "Settings", "PushSubscriptions", "LoginAttempts"] as const;
+export const SHEET_NAMES = ["Orders", "Menu", "Settings", "PushSubscriptions", "LoginAttempts", "NotificationOutbox", "DataMaintenance"] as const;
 
 export const ORDER_HEADERS = [
   "schema_version", "order_id", "order_number", "attempt_id", "created_at", "updated_at",
@@ -19,9 +19,10 @@ export const ORDER_HEADERS = [
   "tax_cents", "fee_cents", "total_cents", "tax_breakdown_json", "pickup_address_json",
   "pickup_estimate", "catalog_revision", "items_summary", "lines_json", "cart_snapshot_json",
   "guest_token_hash", "guest_access_expires_at", "previous_updated_at", "mutation_id",
+  "status_history_json",
 ] as const;
 
-const MENU_HEADERS = ["item_id", "name", "category_id", "price_cents", "availability", "updated_at"] as const;
+const MENU_HEADERS = ["item_id", "name", "category_id", "price_cents", "availability", "updated_at", "tax_class"] as const;
 
 const SETTINGS_HEADERS = [
   "id", "name", "tagline", "phone", "public_email", "address_json", "currency", "timezone",
@@ -33,6 +34,10 @@ const SETTINGS_HEADERS = [
 
 const PUSH_HEADERS = ["device_id", "endpoint", "p256dh", "auth", "enabled", "created_at", "updated_at", "last_success_at", "last_error"] as const;
 const RATE_HEADERS = ["key_hash", "bucket", "window_started_at", "count", "expires_at", "mutation_id"] as const;
+const OUTBOX_HEADERS = ["order_id", "order_number", "state", "attempts", "next_attempt_at", "last_attempt_at", "last_error", "locked_until", "updated_at", "previous_updated_at", "mutation_id"] as const;
+const MAINTENANCE_HEADERS = ["performed_at", "operator_email", "action", "records_affected", "order_numbers_json"] as const;
+
+export type NotificationJob = { orderId: string; orderNumber: string; state: "pending" | "sending" | "sent" | "failed"; attempts: number; nextAttemptAt: string; lastAttemptAt: string | null; lastError: string | null; lockedUntil: string | null; updatedAt: string };
 
 type SheetValue = string | number | boolean | null;
 type PushSubscriptionRecord = {
@@ -63,6 +68,7 @@ type MemoryStore = {
   menu: MenuItem[];
   subscriptions: PushSubscriptionRecord[];
   attempts: Map<string, { count: number; expiresAt: number }>;
+  notificationJobs: NotificationJob[];
 };
 
 const globalStore = globalThis as unknown as { hoiSheetsMemory?: MemoryStore };
@@ -72,6 +78,8 @@ function seedMenu(approved = false): MenuItem[] {
     ...menuSeed.defaults,
     ...source,
     availability: approved ? "available" : menuSeed.defaults.availability,
+    updatedAt: null,
+    taxClass: "standard",
   })) as MenuItem[];
 }
 
@@ -83,9 +91,10 @@ function memoryStore(): MemoryStore {
       menu: seedMenu(true),
       subscriptions: [],
       attempts: new Map(),
+      notificationJobs: [],
       settings: {
         ...fallbackSettings,
-        weeklyHours: Object.fromEntries(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"].map((day) => [day, [{ open: "00:00", close: "00:00" }]])),
+        weeklyHours: Object.fromEntries(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"].map((day) => [day, [{ open: "00:00", close: "00:00", allDay: true }]])),
         cutoffMinutes: 0,
         prepMinMinutes: 25,
         prepMaxMinutes: 35,
@@ -138,6 +147,13 @@ function range(value: string) {
 async function getValues(a1: string): Promise<SheetValue[][]> {
   const data = await request<{ values?: SheetValue[][] }>(`/values/${range(a1)}?majorDimension=ROWS`);
   return data.values ?? [];
+}
+
+async function getValuesBatch(ranges: string[]): Promise<SheetValue[][][]> {
+  const query = new URLSearchParams({ majorDimension: "ROWS" });
+  ranges.forEach((value) => query.append("ranges", value));
+  const data = await request<{ valueRanges?: Array<{ values?: SheetValue[][] }> }>(`/values:batchGet?${query.toString()}`);
+  return ranges.map((_, index) => data.valueRanges?.[index]?.values ?? []);
 }
 
 async function putValues(a1: string, values: SheetValue[][]) {
@@ -207,6 +223,7 @@ const orderSelectionSchema = z.object({ groupId: z.string().min(1), groupLabel: 
 const orderLineSchema = z.object({
   lineId: z.string().uuid(), itemId: z.string().min(1), name: z.string().min(1), quantity: z.number().int().min(1).max(20),
   selections: z.array(orderSelectionSchema), unitPriceCents: z.number().int().nonnegative(), lineTotalCents: z.number().int().nonnegative(),
+  taxClass: z.enum(["standard", "zero_rated"]).optional(), taxRateBasisPoints: z.number().int().min(0).max(5000).optional(), taxCents: z.number().int().nonnegative().optional(),
 }).strict().refine((line) => line.lineTotalCents === line.unitPriceCents * line.quantity, { message: "line total does not match price and quantity" });
 const cartSnapshotSchema = z.array(z.object({ lineId: z.string().uuid(), itemId: z.string().min(1), quantity: z.number().int().min(1).max(20) }).strict()).min(1);
 const taxBreakdownSchema = z.array(z.object({ label: z.string().min(1), amountCents: z.number().int().nonnegative(), inclusive: z.boolean() }).strict());
@@ -217,6 +234,7 @@ const parsedOrderSchema = z.object({
   subtotalCents: z.number().int().nonnegative(), taxCents: z.number().int().nonnegative(), feeCents: z.number().int().nonnegative(), totalCents: z.number().int().nonnegative(),
   taxBreakdown: taxBreakdownSchema, pickupAddress: addressSchema, pickupEstimateText: z.string().nullable(), catalogRevision: z.number().int().positive(),
   lines: z.array(orderLineSchema).min(1), cartSnapshot: cartSnapshotSchema, guestTokenHash: z.string().regex(/^[a-f0-9]{64}$/), guestAccessExpiresAt: isoDateSchema,
+  statusHistory: z.array(z.object({ at: isoDateSchema, actor: z.string().min(1).max(254), fulfillmentFrom: fulfillmentStatusSchema, fulfillmentTo: fulfillmentStatusSchema, paymentFrom: paymentStatusSchema, paymentTo: paymentStatusSchema, reason: z.string().max(200).nullable() }).strict()).max(100).optional(),
 }).strict().superRefine((order, context) => {
   const lineSubtotal = order.lines.reduce((sum, line) => sum + line.lineTotalCents, 0);
   if (lineSubtotal !== order.subtotalCents) context.addIssue({ code: "custom", message: "subtotal does not match line totals", path: ["subtotalCents"] });
@@ -235,7 +253,7 @@ export function orderToRow(order: StoredOrder, metadata: OrderRowMetadata = { pr
     order.customerNotes ?? "", order.currency, order.subtotalCents, order.taxCents, order.feeCents, order.totalCents,
     JSON.stringify(order.taxBreakdown), JSON.stringify(order.pickupAddress), order.pickupEstimateText ?? "", order.catalogRevision,
     itemSummary, JSON.stringify(order.lines), JSON.stringify(order.cartSnapshot), order.guestTokenHash, order.guestAccessExpiresAt,
-    metadata.previousUpdatedAt ?? "", metadata.mutationId ?? ""];
+    metadata.previousUpdatedAt ?? "", metadata.mutationId ?? "", JSON.stringify(order.statusHistory ?? [])];
 }
 
 function jsonValue(value: SheetValue | undefined) {
@@ -273,6 +291,7 @@ function parseOrderRow(row: SheetValue[], rowNumber: number): { parsed: ParsedOr
     cartSnapshot: jsonValue(value.cart_snapshot_json),
     guestTokenHash: asString(value.guest_token_hash),
     guestAccessExpiresAt: asString(value.guest_access_expires_at),
+    statusHistory: parseJson(value.status_history_json, []),
   };
   const result = parsedOrderSchema.safeParse(candidate);
   const previousUpdatedAt = nullable(value.previous_updated_at);
@@ -323,15 +342,20 @@ let menuCache: { value: MenuItem[]; expires: number } | null = null;
 
 export function invalidateSheetsCache() { settingsCache = null; menuCache = null; }
 
-export async function readSettings(): Promise<RestaurantSettings> {
+export async function readSettingsFresh(): Promise<RestaurantSettings> {
   if (usingSheetsTestMode()) return memoryStore().settings;
   if (!sheetsConfigured()) throw new Error("Google Sheets is not configured.");
-  if (settingsCache && settingsCache.expires > Date.now()) return settingsCache.value;
   const rows = await getValues("Settings!A2:Y2");
   if (!rows[0]) throw new Error("The Settings sheet has not been initialized.");
   const value = parseSettings(rows[0]);
   settingsCache = { value, expires: Date.now() + 30_000 };
   return value;
+}
+
+export async function readSettings(): Promise<RestaurantSettings> {
+  if (usingSheetsTestMode()) return memoryStore().settings;
+  if (settingsCache && settingsCache.expires > Date.now()) return settingsCache.value;
+  return readSettingsFresh();
 }
 
 export async function writeSettings(value: RestaurantSettings) {
@@ -344,7 +368,7 @@ export async function readMenu(): Promise<MenuItem[]> {
   if (usingSheetsTestMode()) return memoryStore().menu;
   if (!sheetsConfigured()) throw new Error("Google Sheets is not configured.");
   if (menuCache && menuCache.expires > Date.now()) return menuCache.value;
-  const rows = await getValues("Menu!A2:F");
+  const rows = await getValues("Menu!A2:G");
   if (!rows.length) throw new Error("The Menu sheet has not been initialized.");
   const categoryIds = new Set(menuSeed.categories.map((category) => category.id));
   const overrides = new Map(rows.map((row) => {
@@ -354,32 +378,39 @@ export async function readMenu(): Promise<MenuItem[]> {
       categoryId: asString(value.category_id),
       priceCents: asNumber(value.price_cents),
       availability: asString(value.availability),
+      updatedAt: nullable(value.updated_at),
+      taxClass: asString(value.tax_class) || "standard",
     }];
   }));
   const menu = seedMenu().map((item) => {
     const override = overrides.get(item.id);
     const availability = override?.availability;
-    if (!override || override.name.length < 2 || !categoryIds.has(override.categoryId) || !Number.isInteger(override.priceCents) || override.priceCents < 0 || !["available", "unavailable", "requires_owner_confirmation"].includes(availability ?? "")) throw new Error(`Menu row for ${item.id} is missing or invalid.`);
-    return { ...item, name: override.name, categoryId: override.categoryId, priceCents: override.priceCents, availability: availability as MenuItem["availability"] };
+    if (!override || override.name.length < 2 || !categoryIds.has(override.categoryId) || !Number.isInteger(override.priceCents) || override.priceCents < 0 || !["available", "unavailable", "requires_owner_confirmation"].includes(availability ?? "") || !["standard", "zero_rated"].includes(override.taxClass)) throw new Error(`Menu row for ${item.id} is missing or invalid.`);
+    return { ...item, name: override.name, categoryId: override.categoryId, priceCents: override.priceCents, availability: availability as MenuItem["availability"], updatedAt: override.updatedAt, taxClass: override.taxClass as MenuItem["taxClass"] };
   });
   menuCache = { value: menu, expires: Date.now() + 30_000 };
   return menu;
 }
 
-type MenuItemUpdate = Pick<MenuItem, "id" | "name" | "categoryId" | "priceCents"> & { availability: NonNullable<MenuItem["availability"]> };
+type MenuItemUpdate = Pick<MenuItem, "id" | "name" | "categoryId" | "priceCents"> & { availability: NonNullable<MenuItem["availability"]>; taxClass: NonNullable<MenuItem["taxClass"]>; expectedUpdatedAt: string | null };
+
+export class StaleMenuUpdateError extends Error { constructor(public current: MenuItem) { super("This menu item changed in another session. Review the current version before saving again."); } }
 
 export async function updateMenuItem(value: MenuItemUpdate) {
   const catalogue = await readMenu();
   const current = catalogue.find((item) => item.id === value.id);
   if (!current) throw new Error("Menu item was not found.");
+  if ((current.updatedAt ?? null) !== value.expectedUpdatedAt) throw new StaleMenuUpdateError(current);
   const updated: MenuItem = {
     ...current,
     name: value.name.trim(),
     categoryId: value.categoryId,
     priceCents: value.priceCents,
     availability: value.availability,
+    taxClass: value.taxClass,
+    updatedAt: new Date().toISOString(),
   };
-  const now = new Date().toISOString();
+  const now = updated.updatedAt!;
 
   if (usingSheetsTestMode()) {
     const store = memoryStore();
@@ -389,29 +420,21 @@ export async function updateMenuItem(value: MenuItemUpdate) {
     return structuredClone(updated);
   }
 
-  const rows = await getValues("Menu!A2:F");
+  const rows = await getValues("Menu!A2:G");
   const index = rows.findIndex((row) => asString(row[0]) === updated.id);
   if (index < 0) throw new Error("Menu item was not found in the spreadsheet.");
-  await putValues(`Menu!A${index + 2}:F${index + 2}`, [[updated.id, updated.name, updated.categoryId, updated.priceCents, updated.availability ?? "requires_owner_confirmation", now]]);
+  const sheetCurrentUpdatedAt = nullable(rows[index]?.[5]);
+  if (sheetCurrentUpdatedAt !== value.expectedUpdatedAt) {
+    menuCache = null;
+    const latest = (await readMenu()).find((item) => item.id === value.id);
+    if (latest) throw new StaleMenuUpdateError(latest);
+  }
+  await putValues(`Menu!A${index + 2}:G${index + 2}`, [[updated.id, updated.name, updated.categoryId, updated.priceCents, updated.availability ?? "requires_owner_confirmation", now, updated.taxClass ?? "standard"]]);
   menuCache = null;
 
   const settings = await readSettings();
   await writeSettings({ ...settings, catalogRevision: settings.catalogRevision + 1, updatedAt: now });
   return updated;
-}
-
-export async function approveSeedMenu(now = new Date().toISOString()) {
-  if (usingSheetsTestMode()) { memoryStore().menu = memoryStore().menu.map((item) => item.availability === "requires_owner_confirmation" ? { ...item, availability: "available" } : item); return; }
-  const rows = await getValues("Menu!A2:F");
-  const next = rows.map((row) => {
-    const padded = [...row];
-    while (padded.length < MENU_HEADERS.length) padded.push("");
-    if (asString(padded[4]) === "requires_owner_confirmation") padded[4] = "available";
-    padded[5] = now;
-    return padded;
-  });
-  if (next.length) await putValues(`Menu!A2:F${next.length + 1}`, next);
-  invalidateSheetsCache();
 }
 
 export async function listOrders(): Promise<StoredOrder[]> {
@@ -420,8 +443,16 @@ export async function listOrders(): Promise<StoredOrder[]> {
 
 export async function listOrdersWithDiagnostics(): Promise<{ orders: StoredOrder[]; issues: OrderDataIssue[]; conflictCount: number }> {
   if (usingSheetsTestMode()) return { orders: [...memoryStore().orders].sort((a, b) => b.createdAt.localeCompare(a.createdAt)), issues: [], conflictCount: 0 };
-  const { orders, issues, conflictCount } = resolveOrderRows(await getValues("Orders!A2:AD"));
+  const { orders, issues, conflictCount } = resolveOrderRows(await getValues("Orders!A2:AE"));
   return { orders, issues, conflictCount };
+}
+
+export async function readOperationsSnapshot(): Promise<{ orders: StoredOrder[]; issues: OrderDataIssue[]; conflictCount: number; notificationJobs: NotificationJob[] }> {
+  if (usingSheetsTestMode()) return { orders: [...memoryStore().orders].sort((a, b) => b.createdAt.localeCompare(a.createdAt)), issues: [], conflictCount: 0, notificationJobs: structuredClone(memoryStore().notificationJobs) };
+  const [orderRows, outboxRows] = await getValuesBatch(["Orders!A2:AE", "NotificationOutbox!A2:K"]);
+  const { orders, issues, conflictCount } = resolveOrderRows(orderRows);
+  const notificationJobs = [...resolveOutbox(outboxRows).values()].map((entry) => ({ orderId: entry.orderId, orderNumber: entry.orderNumber, state: entry.state, attempts: entry.attempts, nextAttemptAt: entry.nextAttemptAt, lastAttemptAt: entry.lastAttemptAt, lastError: entry.lastError, lockedUntil: entry.lockedUntil, updatedAt: entry.updatedAt }));
+  return { orders, issues, conflictCount, notificationJobs };
 }
 
 export async function findOrderByAttempt(attemptId: string) { return (await listOrders()).find((order) => order.attemptId === attemptId) ?? null; }
@@ -435,8 +466,8 @@ export async function appendOrder(order: StoredOrder) {
     return true;
   }
   const mutationId = randomUUID();
-  await appendValues("Orders!A:AD", [orderToRow(order, { previousUpdatedAt: null, mutationId })]);
-  const resolved = resolveOrderRows(await getValues("Orders!A2:AD"));
+  await appendValues("Orders!A:AE", [orderToRow(order, { previousUpdatedAt: null, mutationId })]);
+  const resolved = resolveOrderRows(await getValues("Orders!A2:AE"));
   return resolved.canonical.get(order.id)?.mutationId === mutationId;
 }
 
@@ -448,13 +479,13 @@ export async function updateOrder(order: StoredOrder, expectedUpdatedAt: string)
     memoryStore().orders[index] = structuredClone(order);
     return true;
   }
-  const before = resolveOrderRows(await getValues("Orders!A2:AD"));
+  const before = resolveOrderRows(await getValues("Orders!A2:AE"));
   const current = before.canonical.get(order.id);
   if (!current) throw new Error("Order was not found.");
   if (current.order.updatedAt !== expectedUpdatedAt) return false;
   const mutationId = randomUUID();
-  await appendValues("Orders!A:AD", [orderToRow(order, { previousUpdatedAt: expectedUpdatedAt, mutationId })]);
-  const after = resolveOrderRows(await getValues("Orders!A2:AD"));
+  await appendValues("Orders!A:AE", [orderToRow(order, { previousUpdatedAt: expectedUpdatedAt, mutationId })]);
+  const after = resolveOrderRows(await getValues("Orders!A2:AE"));
   return after.canonical.get(order.id)?.mutationId === mutationId;
 }
 
@@ -510,6 +541,63 @@ export async function consumeRateLimit(keyHash: string, bucket: string, limit: n
   return { success: count <= limit, remaining: Math.max(0, limit - count) };
 }
 
+type OutboxVersion = NotificationJob & { previousUpdatedAt: string | null; mutationId: string; rowNumber: number };
+function parseOutboxRow(row: SheetValue[], rowNumber: number): OutboxVersion | null {
+  const value = rowObject(OUTBOX_HEADERS, row); const state = asString(value.state);
+  if (!asString(value.order_id) || !["pending", "sending", "sent", "failed"].includes(state)) return null;
+  return { orderId: asString(value.order_id), orderNumber: asString(value.order_number), state: state as NotificationJob["state"], attempts: Math.max(0, asNumber(value.attempts)), nextAttemptAt: asString(value.next_attempt_at), lastAttemptAt: nullable(value.last_attempt_at), lastError: nullable(value.last_error), lockedUntil: nullable(value.locked_until), updatedAt: asString(value.updated_at), previousUpdatedAt: nullable(value.previous_updated_at), mutationId: asString(value.mutation_id), rowNumber };
+}
+function outboxRow(job: NotificationJob, previousUpdatedAt: string | null, mutationId: string): SheetValue[] { return [job.orderId, job.orderNumber, job.state, job.attempts, job.nextAttemptAt, job.lastAttemptAt ?? "", job.lastError ?? "", job.lockedUntil ?? "", job.updatedAt, previousUpdatedAt ?? "", mutationId]; }
+function resolveOutbox(rows: SheetValue[][]) {
+  const versions = rows.map((row, index) => parseOutboxRow(row, index + 2)).filter((entry): entry is OutboxVersion => Boolean(entry)); const groups = new Map<string, OutboxVersion[]>();
+  for (const entry of versions) groups.set(entry.orderId, [...(groups.get(entry.orderId) ?? []), entry]);
+  const resolved = new Map<string, OutboxVersion>();
+  for (const [orderId, group] of groups) { let current = group.filter((entry) => !entry.previousUpdatedAt).sort((a, b) => a.rowNumber - b.rowNumber)[0]; if (!current) continue; const visited = new Set([current.rowNumber]); while (true) { const child = group.filter((entry) => entry.previousUpdatedAt === current.updatedAt && !visited.has(entry.rowNumber)).sort((a, b) => a.rowNumber - b.rowNumber)[0]; if (!child) break; current = child; visited.add(child.rowNumber); } resolved.set(orderId, current); }
+  return resolved;
+}
+export async function listNotificationJobs(): Promise<NotificationJob[]> {
+  if (usingSheetsTestMode()) return structuredClone(memoryStore().notificationJobs);
+  return [...resolveOutbox(await getValues("NotificationOutbox!A2:K")).values()].map((entry) => ({ orderId: entry.orderId, orderNumber: entry.orderNumber, state: entry.state, attempts: entry.attempts, nextAttemptAt: entry.nextAttemptAt, lastAttemptAt: entry.lastAttemptAt, lastError: entry.lastError, lockedUntil: entry.lockedUntil, updatedAt: entry.updatedAt }));
+}
+export async function ensureNotificationJob(order: Pick<StoredOrder, "id" | "orderNumber">) {
+  const existing = (await listNotificationJobs()).find((job) => job.orderId === order.id); if (existing) return existing;
+  const now = new Date().toISOString(); const job: NotificationJob = { orderId: order.id, orderNumber: order.orderNumber, state: "pending", attempts: 0, nextAttemptAt: now, lastAttemptAt: null, lastError: null, lockedUntil: null, updatedAt: now };
+  if (usingSheetsTestMode()) { memoryStore().notificationJobs.push(structuredClone(job)); return job; }
+  await appendValues("NotificationOutbox!A:K", [outboxRow(job, null, randomUUID())]); return (await listNotificationJobs()).find((entry) => entry.orderId === order.id) ?? job;
+}
+async function appendNotificationVersion(job: NotificationJob, expectedUpdatedAt: string) {
+  if (usingSheetsTestMode()) { const store = memoryStore(); const index = store.notificationJobs.findIndex((entry) => entry.orderId === job.orderId && entry.updatedAt === expectedUpdatedAt); if (index < 0) return false; store.notificationJobs[index] = structuredClone(job); return true; }
+  const mutationId = randomUUID(); await appendValues("NotificationOutbox!A:K", [outboxRow(job, expectedUpdatedAt, mutationId)]); const winner = resolveOutbox(await getValues("NotificationOutbox!A2:K")).get(job.orderId); return winner?.mutationId === mutationId;
+}
+export async function claimNotificationJob(orderId: string, force = false) {
+  const current = (await listNotificationJobs()).find((job) => job.orderId === orderId); if (!current || current.state === "sent") return null;
+  const now = Date.now(); if (!force && ((current.state === "sending" && current.lockedUntil && Date.parse(current.lockedUntil) > now) || Date.parse(current.nextAttemptAt) > now)) return null;
+  const at = new Date(Math.max(now, Date.parse(current.updatedAt) + 1)).toISOString(); const next: NotificationJob = { ...current, state: "sending", attempts: current.attempts + 1, lastAttemptAt: at, lastError: null, lockedUntil: new Date(now + 30_000).toISOString(), updatedAt: at };
+  return await appendNotificationVersion(next, current.updatedAt) ? next : null;
+}
+export async function finishNotificationJob(claimed: NotificationJob, result: { sent: boolean; error?: string }) {
+  const now = new Date(Math.max(Date.now(), Date.parse(claimed.updatedAt) + 1)).toISOString(); const delayMinutes = Math.min(60, 2 ** Math.min(claimed.attempts, 6)); const next: NotificationJob = { ...claimed, state: result.sent ? "sent" : "failed", nextAttemptAt: result.sent ? now : new Date(Date.now() + delayMinutes * 60_000).toISOString(), lastError: result.sent ? null : (result.error ?? "No staff device accepted the notification.").slice(0, 300), lockedUntil: null, updatedAt: now };
+  await appendNotificationVersion(next, claimed.updatedAt); return next;
+}
+
+export function eligibleForRetentionCleanup(orders: StoredOrder[], retentionDays: number, now = Date.now()) {
+  const cutoff = now - retentionDays * 86_400_000;
+  return orders.filter((order) => ["completed", "cancelled"].includes(order.fulfillmentStatus) && Date.parse(order.createdAt) < cutoff && order.customerName !== "Deleted customer");
+}
+
+export async function redactExpiredOrders(retentionDays: number, operatorEmail: string) {
+  const eligible = eligibleForRetentionCleanup(await listOrders(), retentionDays); const redacted: string[] = [];
+  const at = new Date().toISOString();
+  if (usingSheetsTestMode()) {
+    const eligibleIds = new Set(eligible.map((order) => order.id)); memoryStore().orders = memoryStore().orders.map((order) => eligibleIds.has(order.id) ? { ...order, customerName: "Deleted customer", customerEmail: "deleted@example.com", customerPhone: "0000000000", customerNotes: null, guestTokenHash: "0".repeat(64), guestAccessExpiresAt: at } : order); redacted.push(...eligible.map((order) => order.orderNumber));
+  } else {
+    const rows = await getValues("Orders!A2:AE"); const byId = new Map(eligible.map((order) => [order.id, order.orderNumber]));
+    for (let index = 0; index < rows.length; index += 1) { const orderNumber = byId.get(asString(rows[index][1])); if (!orderNumber) continue; const row = [...rows[index]]; while (row.length < ORDER_HEADERS.length) row.push(""); row[10] = "Deleted customer"; row[11] = "deleted@example.com"; row[12] = "0000000000"; row[13] = ""; row[26] = "0".repeat(64); row[27] = at; await putValues(`Orders!A${index + 2}:AE${index + 2}`, [row]); if (!redacted.includes(orderNumber)) redacted.push(orderNumber); }
+    await appendValues("DataMaintenance!A:E", [[at, operatorEmail, "retention_redaction", redacted.length, JSON.stringify(redacted)]]);
+  }
+  return { redactedCount: redacted.length, orderNumbers: redacted };
+}
+
 export async function initializeSpreadsheet() {
   if (usingSheetsTestMode()) return { created: [], initialized: SHEET_NAMES };
   if (!sheetsConfigured()) throw new Error("Set the Google Sheets service-account environment variables first.");
@@ -518,15 +606,17 @@ export async function initializeSpreadsheet() {
   const missing = SHEET_NAMES.filter((name) => !existing.has(name));
   if (missing.length) await request(":batchUpdate", { method: "POST", body: JSON.stringify({ requests: missing.map((title) => ({ addSheet: { properties: { title, gridProperties: { frozenRowCount: 1 } } } })) }) });
   await Promise.all([
-    putValues("Orders!A1:AD1", [[...ORDER_HEADERS]]),
-    putValues("Menu!A1:F1", [[...MENU_HEADERS]]),
+    putValues("Orders!A1:AE1", [[...ORDER_HEADERS]]),
+    putValues("Menu!A1:G1", [[...MENU_HEADERS]]),
     putValues("Settings!A1:Y1", [[...SETTINGS_HEADERS]]),
     putValues("PushSubscriptions!A1:I1", [[...PUSH_HEADERS]]),
     putValues("LoginAttempts!A1:F1", [[...RATE_HEADERS]]),
+    putValues("NotificationOutbox!A1:K1", [[...OUTBOX_HEADERS]]),
+    putValues("DataMaintenance!A1:E1", [[...MAINTENANCE_HEADERS]]),
   ]);
-  const [menuRows, settingRows] = await Promise.all([getValues("Menu!A2:F"), getValues("Settings!A2:Y2")]);
+  const [menuRows, settingRows] = await Promise.all([getValues("Menu!A2:G"), getValues("Settings!A2:Y2")]);
   const now = new Date().toISOString();
-  if (!menuRows.length) await putValues(`Menu!A2:F${menuSeed.items.length + 1}`, seedMenu().map((item) => [item.id, item.name, item.categoryId, item.priceCents, item.availability ?? "requires_owner_confirmation", now]));
+  if (!menuRows.length) await putValues(`Menu!A2:G${menuSeed.items.length + 1}`, seedMenu().map((item) => [item.id, item.name, item.categoryId, item.priceCents, item.availability ?? "requires_owner_confirmation", now, item.taxClass ?? "standard"]));
   if (!settingRows.length) await putValues("Settings!A2:Y2", [settingsToRow({ ...fallbackSettings, updatedAt: now })]);
   invalidateSheetsCache();
   return { created: missing, initialized: SHEET_NAMES };

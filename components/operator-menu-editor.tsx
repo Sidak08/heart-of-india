@@ -28,17 +28,19 @@ function MenuItemEditor({ item: initial, categories, onSaved }: { item: MenuItem
   const [categoryId, setCategoryId] = useState(initial.categoryId);
   const [price, setPrice] = useState(dollars(initial.priceCents));
   const [availability, setAvailability] = useState<NonNullable<MenuItem["availability"]>>(initial.availability ?? "requires_owner_confirmation");
+  const [taxClass, setTaxClass] = useState<NonNullable<MenuItem["taxClass"]>>(initial.taxClass ?? "standard");
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const priceCents = parsePrice(price);
-  const dirty = name.trim() !== saved.name || categoryId !== saved.categoryId || priceCents !== saved.priceCents || availability !== saved.availability;
+  const dirty = name.trim() !== saved.name || categoryId !== saved.categoryId || priceCents !== saved.priceCents || availability !== saved.availability || taxClass !== (saved.taxClass ?? "standard");
 
   function reset() {
     setName(saved.name);
     setCategoryId(saved.categoryId);
     setPrice(dollars(saved.priceCents));
     setAvailability(saved.availability ?? "requires_owner_confirmation");
+    setTaxClass(saved.taxClass ?? "standard");
     setError("");
     setMessage("");
   }
@@ -54,16 +56,22 @@ function MenuItemEditor({ item: initial, categories, onSaved }: { item: MenuItem
       const response = await fetch("/api/operator/menu", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: saved.id, name: name.trim(), categoryId, priceCents, availability }),
+        body: JSON.stringify({ id: saved.id, name: name.trim(), categoryId, priceCents, availability, taxClass, expectedUpdatedAt: saved.updatedAt ?? null }),
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "The menu item could not be saved.");
+      if (!response.ok) {
+        if (response.status === 409 && data.current) {
+          const current = data.current as MenuItem; setSaved(current); setName(current.name); setCategoryId(current.categoryId); setPrice(dollars(current.priceCents)); setAvailability(current.availability ?? "requires_owner_confirmation"); setTaxClass(current.taxClass ?? "standard"); onSaved(current);
+        }
+        throw new Error(data.error || "The menu item could not be saved.");
+      }
       const item = data.item as MenuItem;
       setSaved(item);
       setName(item.name);
       setCategoryId(item.categoryId);
       setPrice(dollars(item.priceCents));
       setAvailability(item.availability ?? "requires_owner_confirmation");
+      setTaxClass(item.taxClass ?? "standard");
       onSaved(item);
       setMessage(`${item.name} was updated.`);
     } catch (caught) {
@@ -88,6 +96,12 @@ function MenuItemEditor({ item: initial, categories, onSaved }: { item: MenuItem
         <label htmlFor={`menu-category-${saved.id}`}>Category</label>
         <select id={`menu-category-${saved.id}`} value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>
           {categories.map((category) => <option value={category.id} key={category.id}>{category.name}</option>)}
+        </select>
+      </div>
+      <div className="field">
+        <label htmlFor={`menu-tax-${saved.id}`}>Tax class</label>
+        <select id={`menu-tax-${saved.id}`} value={taxClass} onChange={(event) => setTaxClass(event.target.value as NonNullable<MenuItem["taxClass"]>)}>
+          <option value="standard">Standard rate</option><option value="zero_rated">Zero rated</option>
         </select>
       </div>
       <div className="field">
@@ -133,7 +147,7 @@ export function OperatorMenuEditor({ initialItems, categories }: { initialItems:
       <div>
         <span className="eyebrow">Customer catalogue</span>
         <h2 id="menu-editor-title">Menu items</h2>
-        <p>Edit customer-facing names, categories, prices, and ordering availability. Item IDs and required choices stay fixed so existing carts remain valid.</p>
+        <p>Edit customer-facing names, categories, prices, tax classes, and ordering availability. Item IDs and required choices stay fixed so existing carts remain valid.</p>
       </div>
       <strong>{items.length} items</strong>
     </div>

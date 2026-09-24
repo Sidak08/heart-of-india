@@ -4,7 +4,7 @@ import { toOrderView } from "@/lib/operations";
 import { jsonError, rateLimit } from "@/lib/server/security";
 
 export async function GET(request: Request, context: RouteContext<"/api/orders/[id]">) {
-  const limited = await rateLimit(request, "order-status", 60, "1 m"); if (!limited.success) return jsonError("Too many status requests.", 429);
+  const limited = await rateLimit(request, "order-status", 60, "1 m", { shared: false }); if (!limited.success) return jsonError("Too many status requests.", 429);
   const { id } = await context.params; if (!/^[0-9a-f-]{36}$/i.test(id)) return jsonError("Order was not found.", 404);
   const authorization = request.headers.get("authorization");
   const bearerToken = authorization?.match(/^Bearer ([A-Za-z0-9_-]{43})$/)?.[1];

@@ -40,7 +40,7 @@ Ask the owner to provide and approve:
 - Holiday or one-off closures. Holiday overrides currently require a settings data update; record the expected dates before launch.
 - How many minutes before closing new orders should stop.
 - Minimum and maximum preparation estimates shown to customers.
-- Whether 13% HST should be added to every listed item price. Confirm this with the restaurant's accountant.
+- The tax label, rate, inclusive/exclusive treatment, and any zero-rated menu items. Confirm these with the restaurant's accountant.
 - How long customer order records should be retained.
 - The final privacy policy.
 - The final ordering, pickup, cancellation, and refund policy.
@@ -254,6 +254,8 @@ Successful output lists these tabs:
 - `Settings`
 - `PushSubscriptions`
 - `LoginAttempts`
+- `NotificationOutbox`
+- `DataMaintenance`
 
 The command also adds the headers, seeds all 80 menu items, and creates the initial settings row. It is safe to rerun: it repairs headers and only fills Menu or Settings when their data rows are empty. It does not intentionally erase orders. Rerun it after deploying an application update that adds Sheet columns. The current Orders layout requires `previous_updated_at` and `mutation_id`, and LoginAttempts requires `mutation_id`; existing older rows remain compatible.
 
@@ -263,7 +265,7 @@ If the command fails:
 - An authentication or PEM error usually means the private key is incomplete or its newlines were damaged.
 - A “not configured” error means one or more Google environment variables are blank.
 
-After the command succeeds, open the Sheet and confirm that all five tabs exist. Do not rename the tabs, change header names, reorder columns, or delete required columns.
+After the command succeeds, open the Sheet and confirm that all seven tabs exist. Do not rename the tabs, change header names, reorder columns, or delete required columns.
 
 ## 7. Review the seeded menu in Google Sheets
 
@@ -276,9 +278,10 @@ Open the `Menu` tab. The following fields matter:
 | `category_id` | Customer-facing category. Prefer changing it through Operator Settings. |
 | `price_cents` | Enter integer CAD cents: `1499` means CA$14.99. |
 | `availability` | Use only `available`, `unavailable`, or `requires_owner_confirmation`. |
-| `updated_at` | Audit/reference field. Do not change its format. |
+| `updated_at` | Optimistic-concurrency field. Do not change its format. |
+| `tax_class` | Use `standard` or `zero_rated`, as confirmed by the accountant. |
 
-Review all 80 rows before approving the menu. Set every temporarily unavailable dish to `unavailable`. When the **menu approved** box is selected in the dashboard for the first time, remaining `requires_owner_confirmation` rows become `available`, so this approval must happen only after a complete review.
+Review all 80 rows before approving the menu. Set every temporarily unavailable dish to `unavailable`. The site will refuse menu approval while any row remains `requires_owner_confirmation`. Review each row and explicitly select `available` or `unavailable`; approval never bulk-publishes unresolved items.
 
 Prefer changing an existing item's name, category, price, or availability through **Operator → Edit Menu**. Dashboard edits validate the value and increment `catalog_revision` automatically. If you change a live menu row directly in the Sheet, increment `catalog_revision` in the `Settings` tab by one so open checkouts detect the changed quote.
 
@@ -300,7 +303,7 @@ Open [http://localhost:3000](http://localhost:3000) and check:
 4. Saag requires a protein choice.
 5. Both combo products require a curry choice.
 6. Checkout collects name, email, and phone.
-7. The displayed subtotal, 13% HST, and total are correct.
+7. The displayed subtotal, configured tax breakdown, and total match the accountant-approved treatment.
 8. An order receives an `HOI-...` number.
 9. The order appears in the private Sheet.
 10. `/operator/login` accepts the configured email and original password.
@@ -373,11 +376,7 @@ Confirm the restaurant name, tagline, phone number, public email, and full addre
 
 ### Ordering hours
 
-For each day:
-
-1. Check the day if pickup orders are accepted.
-2. Enter the opening time.
-3. Enter the closing time.
+For each day, add up to three service intervals. Use multiple intervals for split service, use a closing time earlier than opening for an overnight interval, and select **Open 24 hours** only for a true full-day schedule. Equal opening and closing times are rejected unless the explicit 24-hour option is selected.
 
 Also set:
 
@@ -388,19 +387,7 @@ Also set:
 
 The timezone is fixed to `America/Toronto`, including daylight-saving changes.
 
-The dashboard currently edits the regular weekly schedule. For a holiday closure or special schedule, edit `date_overrides_json` in the private `Settings` tab using valid JSON. A full closure looks like:
-
-```json
-[{"date":"2026-12-25","intervals":[]}]
-```
-
-A shortened day looks like:
-
-```json
-[{"date":"2026-12-24","intervals":[{"open":"11:00","close":"17:00"}]}]
-```
-
-Keep all overrides in the same JSON array, use Toronto-local dates and 24-hour `HH:MM` times, and test each override after editing it. Invalid JSON is ignored, so validate the cell carefully.
+Use **Date overrides** in Operator Settings for holidays and exceptional service. An override replaces the entire weekly schedule for that Toronto-local date; leave its intervals empty for a closure. Test closures, shortened service, and overnight overrides before launch.
 
 ### Policies
 
@@ -428,12 +415,12 @@ Have an appropriate Canadian legal/privacy professional review the final policy 
 Complete these in order:
 
 1. Confirm all menu rows, prices, choices, inclusions, and availability.
-2. Confirm hours, cutoff, preparation times, and HST treatment.
+2. Confirm hours, date overrides, cutoff, preparation times, restaurant tax settings, and per-item tax classes.
 3. Approve the privacy and ordering policies.
 4. Save the settings.
 5. Enable live pay-at-store ordering only after the production tests in section 12 pass.
 
-The tax implementation currently adds 13% HST to the full subtotal. It is deliberately not an editable dashboard field. If the accountant requires different tax treatment for particular products, update and retest the server tax logic before enabling ordering.
+Tax label, rate, and inclusive/exclusive treatment are editable in Operator Settings. Each menu row has a trusted `standard` or `zero_rated` tax class. The immutable order snapshot records the class, applied rate, and line tax. Confirm these values with the accountant before approval.
 
 ## 11. Enable notifications on restaurant devices
 
@@ -444,7 +431,7 @@ On each restaurant-controlled phone, tablet, or computer:
 1. Open the production `/operator/login` page over HTTPS.
 2. Sign in.
 3. Open **Pickup orders**.
-4. Find **New-order notifications**.
+4. Open **Notifications**.
 5. Select **Enable on this device**.
 6. Approve the browser notification prompt.
 7. Select **Send test** and confirm the notification arrives.
@@ -546,11 +533,9 @@ If Google Sheets is unavailable, the server fails closed and does not pretend th
 
 ### Customer-data deletion
 
-The retention-days setting records the owner's policy but does not automatically delete rows because the system intentionally has no cron worker. A designated owner must periodically remove orders older than the approved retention period from the private Sheet. Record who performs this review and how often.
+A designated owner should open **Operator → Data** on a documented schedule. The page lists completed and cancelled orders older than the configured retention period. After confirming that the restaurant no longer needs those records for tax, accounting, safety, or a dispute, type the exact confirmation phrase and run cleanup.
 
-Before deleting rows, confirm that the restaurant no longer needs them for tax, accounting, charge dispute, or other lawful recordkeeping purposes.
-
-The `Orders` tab is append-only: status changes add version rows instead of rewriting the original receipt. When applying the retention policy, delete every row with the same `order_id`, not only the most recent status row. The `LoginAttempts` tab also uses append-only events; periodically delete rows whose `expires_at` is in the past so the tab does not grow indefinitely.
+Cleanup de-identifies customer name, email, phone, notes, and private-link access on every append-only version row while preserving the financial and menu snapshots. It writes the operator, time, count, and affected order numbers to `DataMaintenance`. Review that evidence after each cleanup. Periodically remove expired `LoginAttempts` events whose `expires_at` is in the past so that tab does not grow indefinitely.
 
 ### Backups
 
@@ -604,7 +589,7 @@ If order volume or the number of simultaneous operators grows materially, plan a
 
 - [ ] Owner confirmed name, tagline, phone, address, and public email.
 - [ ] Owner supplied weekly hours, cutoff, and preparation estimate.
-- [ ] Accountant confirmed the 13% HST treatment.
+- [ ] Accountant confirmed the tax label, rate, inclusive/exclusive treatment, and each zero-rated item.
 - [ ] Owner approved privacy, ordering, cancellation, and refund wording.
 - [ ] Owner selected a customer-data retention period and responsible reviewer.
 - [ ] All 80 menu rows, prices, choices, and availability were reviewed.

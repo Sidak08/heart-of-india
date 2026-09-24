@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createOrder, getGuestOrder, setOrderStatus } from "@/lib/server/orders";
+import { createOrder, createOrderRequestSchema, getGuestOrder, OrderTransitionError, setOrderStatus } from "@/lib/server/orders";
+import { listNotificationJobs } from "@/lib/server/sheets";
 import { createQuote } from "@/lib/server/quote";
 
 type RequestLine = { lineId: string; itemId: string; quantity: number; selections: Record<string, string> };
@@ -18,6 +19,7 @@ describe("pay-at-store orders", () => {
     expect(second.order.id).toBe(first.order.id); expect(second.existing).toBe(true);
     expect(await getGuestOrder(first.order.id, first.guestToken)).toMatchObject({ paymentStatus: "unpaid", fulfillmentStatus: "new", totalCents: 1807 });
     expect(await getGuestOrder(first.order.id, "wrong-token")).toBeNull();
+    expect((await listNotificationJobs()).find((job) => job.orderId === first.order.id)).toMatchObject({ orderNumber: first.order.orderNumber, state: "failed" });
   });
 
   it("commits only one order when the same attempt is submitted concurrently", async () => {
@@ -55,6 +57,15 @@ describe("pay-at-store orders", () => {
     request.acceptedQuoteToken = `${request.acceptedQuoteToken.slice(0, -1)}x`;
     const result = await createOrder(request);
     expect(result.changed).toBe(true);
+  });
+
+  it("rejects arbitrary phone text and invalid or reversible status jumps", async () => {
+    expect(createOrderRequestSchema.safeParse({ attemptId: crypto.randomUUID(), customer: { name: "Phone Test", email: "phone@example.com", phone: "call me later", notes: "" }, lines: [], acceptedQuoteToken: "x".repeat(100) }).success).toBe(false);
+    const request = await orderRequest([{ lineId: crypto.randomUUID(), itemId: "drinks-desserts-water", quantity: 1, selections: {} }]); const result = await createOrder(request); if (result.changed) throw new Error("Unexpected changed quote");
+    await expect(setOrderStatus(result.order.id, { fulfillmentStatus: "ready_for_pickup", expectedUpdatedAt: result.order.updatedAt })).rejects.toBeInstanceOf(OrderTransitionError);
+    await expect(setOrderStatus(result.order.id, { fulfillmentStatus: "cancelled", expectedUpdatedAt: result.order.updatedAt })).rejects.toThrow(/reason/i);
+    const paid = await setOrderStatus(result.order.id, { paymentStatus: "paid_at_store", expectedUpdatedAt: result.order.updatedAt }); expect(paid?.paymentStatus).toBe("paid_at_store");
+    await expect(setOrderStatus(result.order.id, { paymentStatus: "unpaid", expectedUpdatedAt: paid!.updatedAt })).rejects.toBeInstanceOf(OrderTransitionError);
   });
 
   it("rejects a required option that is missing", async () => {

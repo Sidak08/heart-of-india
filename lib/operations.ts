@@ -6,8 +6,9 @@ export const paymentStatuses = ["unpaid", "paid_at_store"] as const;
 export type FulfillmentStatus = (typeof fulfillmentStatuses)[number];
 export type PaymentStatus = (typeof paymentStatuses)[number];
 
-export type WeeklyHours = Record<string, Array<{ open: string; close: string }>>;
-export type DateOverride = { date: string; intervals: Array<{ open: string; close: string }> };
+export type HoursInterval = { open: string; close: string; allDay?: boolean };
+export type WeeklyHours = Record<string, HoursInterval[]>;
+export type DateOverride = { date: string; intervals: HoursInterval[] };
 
 export type RestaurantSettings = {
   id: string;
@@ -53,6 +54,9 @@ export type OrderLineSnapshot = {
   selections: OrderSelection[];
   unitPriceCents: number;
   lineTotalCents: number;
+  taxClass?: "standard" | "zero_rated";
+  taxRateBasisPoints?: number;
+  taxCents?: number;
 };
 
 export type StoredOrder = {
@@ -83,6 +87,7 @@ export type StoredOrder = {
   createdAt: string;
   updatedAt: string;
   paidAt: string | null;
+  statusHistory?: Array<{ at: string; actor: string; fulfillmentFrom: FulfillmentStatus; fulfillmentTo: FulfillmentStatus; paymentFrom: PaymentStatus; paymentTo: PaymentStatus; reason: string | null }>;
 };
 
 export type OrderView = Omit<StoredOrder, "guestTokenHash" | "guestAccessExpiresAt" | "attemptId">;
@@ -109,4 +114,8 @@ export const fulfillmentLabels: Record<FulfillmentStatus, string> = {
   ready_for_pickup: "Ready for pickup",
   completed: "Completed",
   cancelled: "Cancelled",
+};
+
+export const allowedFulfillmentTransitions: Record<FulfillmentStatus, FulfillmentStatus[]> = {
+  new: ["preparing", "cancelled"], preparing: ["ready_for_pickup", "cancelled"], ready_for_pickup: ["completed", "cancelled"], completed: [], cancelled: [],
 };

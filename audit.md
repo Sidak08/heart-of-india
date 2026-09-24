@@ -9,10 +9,29 @@ Change policy: this audit did not change application code or production data. Ad
 The three findings originally rated **High** have been addressed in the implementation:
 
 - **H-01:** checkout now requires a short-lived HMAC-signed quote token bound to the complete server quote, including item IDs, line IDs, options, quantities, catalogue revision, totals, and orderability. A changed same-price cart receives `409` and a fresh quote.
-- **H-02:** order creation and status changes now append immutable mutation rows. Canonical row-order conflict resolution prevents duplicate create notification work and last-writer overwrites; conflicts are reported to the operator. Persistent rate-limit accounting now appends one uniquely identified event per request.
+- **H-02:** order creation and status changes now append immutable mutation rows. Canonical row-order conflict resolution prevents duplicate create notification work and last-writer overwrites; conflicts are reported to the operator. Persistent rate-limit accounting appends one uniquely identified event per sensitive mutation request.
 - **H-03:** order rows are schema-validated. Malformed rows are returned as safe diagnostics with Sheet row numbers and shown in the authenticated order dashboard instead of disappearing silently.
 
 The original findings below remain as the audit record and explain the pre-remediation failure modes.
+
+## Remaining remediation update — September 24, 2026
+
+All Medium and Low findings in this audit have now been addressed in the implementation:
+
+- Menu availability uses one shared orderability rule; existing carts reconcile against the live catalogue, enforce client/server limits, validate stored data, synchronize across tabs, and show storage or fallback degradation.
+- Hours now support split service, overnight carry-over, explicit 24-hour intervals, date overrides, cutoff validation, weekly boundaries, and daylight-saving-aware Toronto calculations.
+- Settings and menu changes use edit timestamps and return conflicts for stale forms. Menu approval refuses unresolved items instead of bulk-publishing them.
+- Tax label, rate, inclusive treatment, and per-item standard/zero-rated classes are operator-managed and captured in immutable order line snapshots.
+- New-order push work has a durable Sheet outbox with leases, retry/backoff, dashboard recovery, delivery state, manual retry, and browser/server subscription reconciliation.
+- The authenticated Data area lists retention-eligible orders, de-identifies personal data across every order-version row after explicit confirmation, and writes evidence to `DataMaintenance`.
+- Operator orders are no longer capped at 500, can be searched, auto-refresh without hiding active orders, restrict status transitions, require cancellation reasons, prevent payment reversal, and retain an operator-attributed change history.
+- Customer status polling retries transient failures and resumes on focus/connectivity. Sensitive mutations use persistent append-only rate-limit events; high-frequency quote and private-status reads use bounded process-local limits so rate limiting cannot exhaust the Sheets API. Production client identity comes only from platform forwarding headers.
+- Environment variables parse independently and surface invalid entries in the authenticated overview; VAPID subjects are validated at startup.
+- Phone validation, form error associations, nonce-based script/style-element CSP, Toronto order-number dates, customer-facing copy, no-store menu responses, sign-out notification cleanup, and responsive overflow issues were also corrected.
+
+Final validation also found and corrected a mobile sticky-category overlap, browser-locale hydration differences in operator timestamps, and missing CSP nonces on the dialog library's runtime scroll-lock styles.
+
+A live run-through later exposed the Google Sheets per-user read quota. Dashboard polling now batch-reads Orders and NotificationOutbox in one request, skips retry scans when nothing is due, and avoids persistent Sheet writes for every passive quote/status poll.
 
 ## Executive summary
 
@@ -546,9 +565,10 @@ Use one shared atomic limiter for sensitive endpoints, or accept and document th
 
 - `npm run lint` — passed.
 - `npm run typecheck` — passed.
-- `npm test` — 25 tests passed across 9 files.
+- `npm test` — 38 tests passed across 11 files.
 - `npm run build` — Next.js 16.3.5 production build passed.
-- `npm run test:e2e` — 69 passed and 3 intentionally skipped. Projects: Chromium, Firefox, Playwright WebKit, and mobile Chromium emulation.
+- `npm run test:e2e` — 73 passed and 15 intentionally skipped duplicate-coverage cases. Projects: Chromium, Firefox, Playwright WebKit, and mobile Chromium emulation.
+- Production-mode browser smoke — nonce CSP present, mobile item choice/cart interaction passed, and zero browser console errors.
 - `npm audit --omit=dev` — 0 vulnerabilities.
 
 ### Adversarial browser and API checks

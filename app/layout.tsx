@@ -1,12 +1,15 @@
 import type { Metadata } from "next";
 import { Cormorant_Garamond, Source_Sans_3 } from "next/font/google";
+import { headers } from "next/headers";
 import "./globals.css";
 import { CartProvider } from "@/components/cart-provider";
 import { CartDrawer } from "@/components/cart-drawer";
 import { MobileCartBar } from "@/components/mobile-cart-bar";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
+import { StyleNonce } from "@/components/style-nonce";
 import { WebMcpTools } from "@/components/webmcp-tools";
+import { getPublicCatalogue } from "@/lib/server/public-menu";
 import { getPublicSettings } from "@/lib/server/public-settings";
 
 const display = Cormorant_Garamond({ subsets: ["latin"], variable: "--font-display", weight: ["600", "700"] });
@@ -20,10 +23,11 @@ export const metadata: Metadata = {
 };
 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  const settings = await getPublicSettings();
+  const [settings, catalogue, requestHeaders] = await Promise.all([getPublicSettings(), getPublicCatalogue(), headers()]);
+  const nonce = requestHeaders.get("x-nonce") ?? undefined;
   return (
     <html lang="en-CA" data-scroll-behavior="smooth">
-      <body className={`${display.variable} ${body.variable}`}>{settings.operationsApprovedAt && <script type="application/ld+json">{JSON.stringify({ "@context": "https://schema.org", "@type": "Restaurant", name: settings.name, telephone: settings.phone, address: { "@type": "PostalAddress", streetAddress: settings.address.street, addressLocality: settings.address.city, addressRegion: settings.address.province, postalCode: settings.address.postalCode, addressCountry: settings.address.country }, currenciesAccepted: settings.currency })}</script>}<CartProvider><SiteHeader name={settings.name} tagline={settings.tagline} phone={settings.phone} />{children}<SiteFooter name={settings.name} tagline={settings.tagline} phone={settings.phone} address={settings.address} publicEmail={settings.publicEmail} /><CartDrawer /><MobileCartBar /><WebMcpTools /></CartProvider></body>
+      <body className={`${display.variable} ${body.variable}`}><StyleNonce nonce={nonce} />{settings.operationsApprovedAt && <script nonce={nonce} type="application/ld+json">{JSON.stringify({ "@context": "https://schema.org", "@type": "Restaurant", name: settings.name, telephone: settings.phone, address: { "@type": "PostalAddress", streetAddress: settings.address.street, addressLocality: settings.address.city, addressRegion: settings.address.province, postalCode: settings.address.postalCode, addressCountry: settings.address.country }, currenciesAccepted: settings.currency })}</script>}<CartProvider catalogue={catalogue.items} catalogueDegraded={catalogue.degraded || settings.degraded}><SiteHeader name={settings.name} tagline={settings.tagline} phone={settings.phone} />{children}<SiteFooter name={settings.name} tagline={settings.tagline} phone={settings.phone} address={settings.address} publicEmail={settings.publicEmail} /><CartDrawer /><MobileCartBar /><WebMcpTools /></CartProvider></body>
     </html>
   );
 }

@@ -21,7 +21,7 @@ export default async function HomePage() {
               <div className="eyebrow">Brampton, Ontario</div>
               <h1>Warm Indian cooking, ready for pickup.</h1>
               <div className="tricolour-rule" aria-hidden="true"><span /><span /><span /></div>
-              <p>Explore the {settings.name} menu, choose your favourites, and place a secure pickup order from {settings.address.street.replace(/\.$/, "")}.</p>
+              <p>Explore the {settings.name} menu, choose your favourites, and place a pickup order for payment at the restaurant from {settings.address.street.replace(/\.$/, "")}.</p>
               <div className="hero-actions"><Link className="button-primary" href="/menu">Order Online <ArrowRight size={19} /></Link><Link className="button-secondary" href="/menu">View Menu</Link></div>
             </div>
             <div className="hero-seal"><Image src="/heart-of-india-logo.png" alt="Heart of India - Authentic Indian Restaurant" width={1444} height={1444} priority /></div>

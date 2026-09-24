@@ -9,5 +9,5 @@ export const metadata: Metadata = { title: "Pickup orders", robots: { index: fal
 export default async function OperatorOrdersPage() {
   const operator = await requireOperator(); const snapshot = await getOperatorOrderSnapshot();
   const orders: OperatorOrder[] = snapshot.orders.map(toOrderView);
-  return <OperatorDashboard initialOrders={orders} initialIssues={snapshot.issues} initialConflictCount={snapshot.conflictCount} operatorEmail={operator.email} />;
+  return <OperatorDashboard initialOrders={orders} initialIssues={snapshot.issues} initialConflictCount={snapshot.conflictCount} initialNotificationJobs={snapshot.notificationJobs} operatorEmail={operator.email} />;
 }

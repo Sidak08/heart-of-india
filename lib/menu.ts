@@ -6,6 +6,8 @@ export type MenuItem = {
   id: string; categoryId: string; name: string; priceCents: number; description?: string | null;
   image?: string | null; dietaryTags?: string[] | null; allergens?: string[] | null;
   availability?: "available" | "unavailable" | "requires_owner_confirmation";
+  updatedAt?: string | null;
+  taxClass?: "standard" | "zero_rated";
   includedItems?: string[]; optionGroups: MenuOptionGroup[];
 };
 export type MenuCategory = { id: string; name: string; description?: string; printedInclusions?: string; reviewNote?: string };
@@ -23,4 +25,8 @@ export const restaurant = menuSeed.restaurant;
 
 export function formatCad(cents: number) {
   return `CA$${new Intl.NumberFormat("en-CA", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(cents / 100)}`;
+}
+
+export function isOrderableItem(item: MenuItem | null | undefined) {
+  return item?.availability === "available";
 }

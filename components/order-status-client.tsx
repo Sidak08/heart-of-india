@@ -4,11 +4,16 @@ import { Bookmark, Camera, Check, CheckCircle2, ChefHat, CircleX, Clock3, Copy, 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useCart } from "@/components/cart-provider";
+import { formatTorontoDate } from "@/lib/date-format";
 import { formatCad } from "@/lib/menu";
 import { fulfillmentLabels, type FulfillmentStatus, type StoredOrder } from "@/lib/operations";
 
 type PublicOrder = Omit<StoredOrder, "guestTokenHash" | "guestAccessExpiresAt" | "attemptId">;
 type OrderStatusResponse = { order: PublicOrder; accessToken: string; accessExpiresAt: string };
+
+const ACTIVE_STATUS_POLL_MS = 30_000;
+const BACKGROUND_STATUS_POLL_MS = 60_000;
+const MAX_ERROR_RETRY_MS = 120_000;
 
 function StatusIcon({ status }: { status: FulfillmentStatus }) {
   if (status === "cancelled") return <CircleX className="status-icon failure" size={54} />;
@@ -33,39 +38,46 @@ function saveTokenInAddress(token: string) {
 }
 
 function formatAccessExpiry(value: string) {
-  try { return new Intl.DateTimeFormat("en-CA", { dateStyle: "long" }).format(new Date(value)); }
-  catch { return "30 days after the order was placed"; }
+  const formatted = formatTorontoDate(value);
+  return formatted === "Date unavailable" ? "30 days after the order was placed" : formatted;
 }
 
 export function OrderStatusClient({ orderId }: { orderId: string }) {
   const cart = useCart(); const [order, setOrder] = useState<PublicOrder | null>(null); const [error, setError] = useState(""); const [checking, setChecking] = useState(true); const [accessExpiresAt, setAccessExpiresAt] = useState(""); const [copyMessage, setCopyMessage] = useState("");
-  const cleared = useRef(false); const accessToken = useRef(""); const clearPurchasedSnapshot = cart.clearPurchasedSnapshot;
+  const [retryToken, setRetryToken] = useState(0); const cleared = useRef(false); const accessToken = useRef(""); const clearPurchasedSnapshot = cart.clearPurchasedSnapshot;
 
   useEffect(() => {
     accessToken.current = tokenFromLocation();
-    let stopped = false; let timeout: ReturnType<typeof setTimeout>;
+    let stopped = false; let timeout: ReturnType<typeof setTimeout>; let failures = 0; let inFlight = false; let isTerminal = false;
+    const schedule = (delay: number) => { clearTimeout(timeout); timeout = setTimeout(check, delay); };
     async function check() {
+      if (inFlight || stopped) return;
+      if (!navigator.onLine) { setError("This device is offline. We will retry when the connection returns."); setChecking(false); schedule(15_000); return; }
+      inFlight = true;
       try {
         const headers: HeadersInit = accessToken.current ? { Authorization: `Bearer ${accessToken.current}` } : {};
         const response = await fetch(`/api/orders/${orderId}`, { cache: "no-store", headers }); const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Order status could not be loaded."); if (stopped) return;
         const result = data as OrderStatusResponse;
         if (/^[A-Za-z0-9_-]{43}$/.test(result.accessToken)) { accessToken.current = result.accessToken; saveTokenInAddress(result.accessToken); }
-        setOrder(result.order); setAccessExpiresAt(result.accessExpiresAt); setError(""); setChecking(false);
+        failures = 0; setOrder(result.order); setAccessExpiresAt(result.accessExpiresAt); setError(""); setChecking(false);
         if (!cleared.current) { clearPurchasedSnapshot(result.order.cartSnapshot); cleared.current = true; }
-        if (!["completed", "cancelled"].includes(result.order.fulfillmentStatus)) timeout = setTimeout(check, document.visibilityState === "visible" ? 6000 : 15_000);
-      } catch (caught) { if (!stopped) { setError(caught instanceof Error ? caught.message : "Order status could not be loaded."); setChecking(false); } }
+        isTerminal = ["completed", "cancelled"].includes(result.order.fulfillmentStatus);
+        if (!isTerminal) schedule(document.visibilityState === "visible" ? ACTIVE_STATUS_POLL_MS : BACKGROUND_STATUS_POLL_MS);
+      } catch (caught) { if (!stopped) { failures += 1; setError(caught instanceof Error ? caught.message : "Order status could not be loaded."); setChecking(false); const initialRetry = document.visibilityState === "visible" ? ACTIVE_STATUS_POLL_MS : BACKGROUND_STATUS_POLL_MS; schedule(Math.min(MAX_ERROR_RETRY_MS, initialRetry * 2 ** Math.min(failures - 1, 2))); } } finally { inFlight = false; }
     }
+    const resume = () => { if (document.visibilityState === "visible") void check(); else if (!isTerminal) schedule(BACKGROUND_STATUS_POLL_MS); }; const online = () => void check();
+    document.addEventListener("visibilitychange", resume); window.addEventListener("online", online);
     void check();
-    return () => { stopped = true; clearTimeout(timeout); };
-  }, [orderId, clearPurchasedSnapshot]);
+    return () => { stopped = true; clearTimeout(timeout); document.removeEventListener("visibilitychange", resume); window.removeEventListener("online", online); };
+  }, [orderId, clearPurchasedSnapshot, retryToken]);
 
   async function copyPrivateLink() {
     const url = window.location.href;
     try {
       if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(url);
       else {
-        const field = document.createElement("textarea"); field.value = url; field.setAttribute("readonly", ""); field.style.position = "fixed"; field.style.opacity = "0";
+        const field = document.createElement("textarea"); field.value = url; field.setAttribute("readonly", ""); field.className = "clipboard-fallback";
         document.body.append(field); field.select(); const copied = document.execCommand("copy"); field.remove(); if (!copied) throw new Error("Copy was not available.");
       }
       setCopyMessage("Private order link copied. Save it somewhere only you can access.");
@@ -77,7 +89,7 @@ export function OrderStatusClient({ orderId }: { orderId: string }) {
     <span className="eyebrow">{order ? fulfillmentLabels[order.fulfillmentStatus] : "Loading order"}</span>
     <h1 className="section-title">{order ? heading(order.fulfillmentStatus) : "Checking your order"}</h1>
     {checking && !order && <p aria-live="polite">We are loading the restaurant’s order record.</p>}
-    {error && <div className="inline-error" role="alert"><strong>Status unavailable</strong><span>{error}</span><button className="text-action" onClick={() => location.reload()}>Try again</button></div>}
+    {error && <div className="inline-error" role="alert"><strong>Status temporarily unavailable</strong><span>{error} Automatic retries will continue.</span><button className="text-action" onClick={() => { setChecking(true); setRetryToken((value) => value + 1); }}>Try now</button></div>}
     {order && <>
       <p>Order <strong>{order.orderNumber}</strong> is recorded. Show this number at the restaurant when you pick it up.</p>
       <div className="order-save-card" aria-labelledby="save-order-title">

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { categories } from "@/lib/menu";
 import { getOperator } from "@/lib/server/operator";
-import { readMenu, updateMenuItem } from "@/lib/server/sheets";
+import { readMenu, StaleMenuUpdateError, updateMenuItem } from "@/lib/server/sheets";
 import { jsonError, verifySameOrigin } from "@/lib/server/security";
 
 const categoryIds = new Set(categories.map((category) => category.id));
@@ -11,6 +11,8 @@ const updateSchema = z.object({
   categoryId: z.string().refine((value) => categoryIds.has(value), "Choose a valid category."),
   priceCents: z.number().int().min(0).max(100_000),
   availability: z.enum(["available", "unavailable", "requires_owner_confirmation"]),
+  taxClass: z.enum(["standard", "zero_rated"]),
+  expectedUpdatedAt: z.string().datetime().nullable(),
 }).strict();
 
 export async function GET() {
@@ -30,6 +32,7 @@ export async function PATCH(request: Request) {
     const item = await updateMenuItem(parsed.data);
     return Response.json({ item }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
+    if (error instanceof StaleMenuUpdateError) return Response.json({ error: error.message, current: error.current }, { status: 409, headers: { "Cache-Control": "no-store" } });
     return jsonError(error instanceof Error ? error.message : "The menu item could not be saved.", 503);
   }
 }

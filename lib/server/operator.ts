@@ -24,7 +24,7 @@ export async function verifyOperatorCredentials(email: string, password: string)
   if (!operatorConfigured || !env.OPERATOR_EMAIL || !env.OPERATOR_PASSWORD_HASH) return false;
   const normalized = email.normalize("NFKC").trim().toLowerCase();
   const expectedEmail = env.OPERATOR_EMAIL.normalize("NFKC").trim().toLowerCase();
-  const parts = env.OPERATOR_PASSWORD_HASH.split("$");
+  const parts = env.OPERATOR_PASSWORD_HASH.replaceAll("\\$", "$").split("$");
   if (parts.length !== 3 || parts[0] !== "scrypt") return false;
   let expected: Buffer; let salt: Buffer;
   try { salt = Buffer.from(parts[1], "base64url"); expected = Buffer.from(parts[2], "base64url"); }

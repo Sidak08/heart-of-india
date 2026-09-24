@@ -1,7 +1,7 @@
 import "server-only";
 
 import { createHash, timingSafeEqual } from "node:crypto";
-import { env } from "@/lib/server/env";
+import { env, sheetsConfigured } from "@/lib/server/env";
 import { consumeRateLimit } from "@/lib/server/sheets";
 
 const globalLimits = globalThis as unknown as { hoiRateLimits?: Map<string, { count: number; expiresAt: number }> };
@@ -14,13 +14,14 @@ function windowToMs(window: string) {
   return Number(match[1]) * unit;
 }
 
-export async function rateLimit(request: Request, bucket: string, limit = 10, window = "1 m") {
-  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "unknown";
+export async function rateLimit(request: Request, bucket: string, limit = 10, window = "1 m", options: { shared?: boolean } = {}) {
+  const trustedForwarded = env.VERCEL_ENV ? request.headers.get("x-vercel-forwarded-for") || request.headers.get("x-forwarded-for") : null;
+  const forwarded = trustedForwarded?.split(",")[0]?.trim() || (!env.VERCEL_ENV ? request.headers.get("x-real-ip") : null) || "unknown";
   const keyHash = createHash("sha256").update(`${bucket}:${forwarded}:${env.OPERATOR_SESSION_SECRET ?? env.ORDER_ACCESS_SECRET ?? "preview"}`).digest("hex");
   const windowMs = windowToMs(window);
-  if (bucket === "operator-login" || bucket === "order-create") {
+  if (options.shared !== false && (sheetsConfigured() || process.env.NODE_ENV === "test")) {
     try { return { ...(await consumeRateLimit(keyHash, bucket, limit, windowMs)), degraded: false }; }
-    catch { if (bucket === "operator-login") return { success: false, remaining: 0, degraded: true }; }
+    catch { if (bucket === "operator-login" || bucket === "order-create") return { success: false, remaining: 0, degraded: true }; }
   }
   const key = `${bucket}:${keyHash}`; const now = Date.now(); const current = localLimits.get(key);
   const next = !current || current.expiresAt <= now ? { count: 1, expiresAt: now + windowMs } : { ...current, count: current.count + 1 };
