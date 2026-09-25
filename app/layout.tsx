@@ -20,6 +20,7 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
   title: { default: "Heart of India | Indian Restaurant in Brampton", template: "%s | Heart of India" },
   description: "Explore the pickup menu from Heart of India, an authentic Indian restaurant at 89 Clarence Street in Brampton, Ontario.",
+  appleWebApp: { capable: true, title: "Heart of India", statusBarStyle: "default" },
 };
 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

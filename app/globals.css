@@ -789,6 +789,8 @@ a.operator-hub-card:hover, a.operator-hub-card:focus-visible { border-color: var
 .notification-settings { margin-top: 30px; }
 .operator-notification-page .notification-settings { margin-top: 0; }
 .notification-settings > div:first-child p { margin: -8px 0 16px; color: var(--muted); }
+.notification-install-help ol { display: grid; gap: 5px; margin: 5px 0 0; padding-left: 22px; }
+.notification-install-help li { padding-left: 3px; }
 .notification-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 .hours-editor { display: grid; gap: 7px; margin: 18px 0 24px; }
 .hours-row { min-height: 54px; display: grid; grid-template-columns: minmax(145px, 1fr) minmax(125px, .7fr) auto minmax(125px, .7fr); align-items: center; gap: 10px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 12px; }
